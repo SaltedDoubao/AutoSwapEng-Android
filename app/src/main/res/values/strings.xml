@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AutoSwapEng</string>
+    <string name="accessibility_description">辅助答题服务，仅在指定应用中识别并点击选项。可通过应用内开关控制启用/禁用。</string>
+    <string name="service_label">AutoSwapEng 自动答题</string>
+    <string name="service_done_phrase1">恭喜你完成卡包学习</string>
+    <string name="service_done_phrase2">任务已完成</string>
+    <string name="theme_app">AppTheme</string>
+</resources>
+
+

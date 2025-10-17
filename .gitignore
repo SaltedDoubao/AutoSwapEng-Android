@@ -1,0 +1,14 @@
+/.gradle/
+/build/
+local.properties
+/.idea/
+/app/build/
+/app/release/
+**/captures/
+**/.cxx/
+.local/
+package.env
+
+.cursor/
+CLAUDE.md
+GEMINI.md

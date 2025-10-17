@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AutoSwapEng" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- 这里可扩展颜色/字体/形状等 -->
+    </style>
+    
+</resources>
+
+
