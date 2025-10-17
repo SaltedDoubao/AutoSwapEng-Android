@@ -20,7 +20,7 @@ import kotlinx.coroutines.delay
  */
 class SpellingHandler(
     private val screenCapture: ScreenCaptureHelper,
-    private val tap: (Int, Int) -> Unit,
+    private val tap: suspend (Int, Int) -> Unit,
     private val onProgress: ((String) -> Unit)? = null
 ) {
     
@@ -47,8 +47,15 @@ class SpellingHandler(
         // 加长首键到剩余字母的等待，给内置键盘足够的提交时间
         delay(300)
 
+        // 第二个字符单独敲击并延时，继续稳定化，缓解部分键盘二击误触
+        if (lower.length >= 2) {
+            val second = lower[1].toString()
+            keyboardTapper.typeText(second)
+            delay(160)
+        }
+
         // 输入剩余字母（不再去抖，避免造成双击）
-        val rest = lower.drop(1)
+        val rest = if (lower.length > 2) lower.drop(2) else ""
         if (rest.isNotEmpty()) {
             keyboardTapper.typeText(rest, dedupeFirstChar = false)
         }
@@ -224,6 +231,19 @@ class SpellingHandler(
         keyboardTapper.clearInput(times = 20)
         delay(800)  // 等待清空完成
         
+        // 再次点击输入框以确保焦点（某些设备清空后焦点会短暂丢失）
+        run {
+            val rect = MiniProgramRegions.Spelling.INPUT_AREA.toPixelRect(
+                screenCapture.screenWidth,
+                screenCapture.screenHeight
+            )
+            val fx = (rect.left + rect.right) / 2
+            val fy = (rect.top + rect.bottom) / 2
+            LogManager.d(TAG, "再次点击输入框以确保焦点: ($fx, $fy)")
+            tap(fx, fy)
+            delay(150)
+        }
+
         // 步骤4：输入正确答案（通过点击键盘）
         LogManager.d(TAG, "通过点击键盘输入正确答案: $correctWord")
         // 使用首字母OCR校验的安全输入流程，避免首字母重复

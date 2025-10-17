@@ -8,7 +8,7 @@ import kotlinx.coroutines.delay
  * 通过点击屏幕上的虚拟键盘来输入文本
  */
 class KeyboardTapper(
-    private val tap: (Int, Int) -> Unit,
+    private val tap: suspend (Int, Int) -> Unit,
     private val screenWidth: Int,
     private val screenHeight: Int
 ) {
@@ -90,7 +90,7 @@ class KeyboardTapper(
                  } else {
                     tap(x, y)
                      // 为第一个按键设置更长的延迟，避免因系统预测/抬起去抖导致的重复
-                    if (index == 0) delay(150) else delay(90)
+                    if (index == 0) delay(170) else delay(100)
                 }
             } else {
                 LogManager.w(TAG, "字符 '$char' 不在键盘映射中")
@@ -121,7 +121,7 @@ class KeyboardTapper(
     /**
      * 点击确认键
      */
-    fun clickEnter() {
+    suspend fun clickEnter() {
         val x = (ENTER.first * screenWidth).toInt()
         val y = (ENTER.second * screenHeight).toInt()
         

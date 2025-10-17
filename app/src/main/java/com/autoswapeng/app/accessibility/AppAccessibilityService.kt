@@ -15,6 +15,9 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -431,13 +434,36 @@ class AppAccessibilityService : AccessibilityService() {
 
     private fun tap(x: Float, y: Float) {
         val path = Path().apply { moveTo(x, y) }
-        // 缩短点击持续时间，避免被识别为双击或长按
+        // 保持一个极短的点击以触发单次按键
         val stroke = GestureDescription.StrokeDescription(path, 0, 20)
         dispatchGesture(
             GestureDescription.Builder().addStroke(stroke).build(),
             null,
             null
         )
+    }
+
+    /**
+     * 带回调的点击，挂起直到系统完成手势（防止快速连续点击导致键盘重复上屏）
+     */
+    private suspend fun tapAwait(x: Float, y: Float) {
+        val path = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, 30)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return suspendCancellableCoroutine { cont ->
+            dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    super.onCompleted(gestureDescription)
+                    if (!cont.isCompleted) cont.resume(Unit)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    super.onCancelled(gestureDescription)
+                    // 将取消也视为完成，避免卡死；必要时可改为异常
+                    if (!cont.isCompleted) cont.resume(Unit)
+                }
+            }, null)
+        }
     }
 
     private fun swipe(x1: Float, y1: Float, x2: Float, y2: Float) {
@@ -522,7 +548,7 @@ class AppAccessibilityService : AccessibilityService() {
             screenCaptureHelper?.let { helper ->
                 spellingHandler = SpellingHandler(
                     screenCapture = helper,
-                    tap = { x, y -> tap(x.toFloat(), y.toFloat()) },
+                    tap = { x, y -> tapAwait(x.toFloat(), y.toFloat()) },
                     onProgress = { message ->
                         LogManager.i(TAG, "拼写进度: $message")
                     }
