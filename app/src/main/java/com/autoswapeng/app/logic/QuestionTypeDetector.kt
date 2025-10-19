@@ -38,9 +38,11 @@ class QuestionTypeDetector {
         }
         
         // 提取关键信息
-        val hasEnglishWord = texts.any { it.text.matches(Regex("^[A-Za-z]+$")) && it.text.length in 2..32 }
+        val englishWordRegex = Regex("^[A-Za-z]+$")
+        val hasEnglishWord = texts.any { it.text.matches(englishWordRegex) && it.text.length in 2..32 }
         val hasChineseDefinition = texts.any { containsChineseDefinition(it.text) }
-        val hasOptions = texts.count { containsChineseDefinition(it.text) } >= 4
+        val hasCnOptions = texts.count { containsChineseDefinition(it.text) } >= 4
+        val hasEnOptions = texts.count { it.text.matches(englishWordRegex) && it.text.length in 2..32 } >= 4
         val hasSpellingInput = texts.any { it.text.contains("拼写") || it.text.contains("输入") }
         val hasListenButton = texts.any { 
             it.text.contains("听") || it.text.contains("播放") || it.text.contains("🔊")
@@ -58,8 +60,22 @@ class QuestionTypeDetector {
                 )
             }
             
+            // “中→英” 选择题：上方中文释义，四个英文单词选项
+            hasChineseDefinition && hasEnOptions -> {
+                val definition = texts.firstOrNull { containsChineseDefinition(it.text) }?.text
+                val options = texts.filter { it.text.matches(englishWordRegex) && it.text.length in 2..32 }
+                    .take(4)
+                    .map { it.text }
+                DetectionResult(
+                    type = QuestionType.WORD_SELECTION,
+                    definition = definition,
+                    options = options,
+                    confidence = 0.92f
+                )
+            }
+            
             // 听力题
-            hasListenButton && hasOptions -> {
+            hasListenButton && hasCnOptions -> {
                 val options = texts.filter { containsChineseDefinition(it.text) }
                     .take(4)
                     .map { it.text }
@@ -71,9 +87,9 @@ class QuestionTypeDetector {
             }
             
             // 单词选择题（看单词选释义）
-            hasEnglishWord && hasOptions -> {
+            hasEnglishWord && hasCnOptions -> {
                 val word = texts.firstOrNull { 
-                    it.text.matches(Regex("^[A-Za-z]+$")) && it.text.length in 2..32 
+                    it.text.matches(englishWordRegex) && it.text.length in 2..32 
                 }?.text
                 val options = texts.filter { containsChineseDefinition(it.text) }
                     .take(4)
@@ -87,9 +103,9 @@ class QuestionTypeDetector {
             }
             
             // 学习模式（单词+释义展示）
-            hasEnglishWord && hasChineseDefinition && !hasOptions -> {
+            hasEnglishWord && hasChineseDefinition && !hasCnOptions -> {
                 val word = texts.firstOrNull { 
-                    it.text.matches(Regex("^[A-Za-z]+$")) && it.text.length in 2..32 
+                    it.text.matches(englishWordRegex) && it.text.length in 2..32 
                 }?.text
                 val definition = texts.firstOrNull { containsChineseDefinition(it.text) }?.text
                 DetectionResult(

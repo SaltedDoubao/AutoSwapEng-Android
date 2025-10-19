@@ -188,6 +188,7 @@ fun FloatingWindowContent(
     var isDragging by remember { mutableStateOf(false) }
     var hasOcrPermission by remember { mutableStateOf(AppAccessibilityService.instance?.isScreenCaptureReady() ?: false) }
     var isSpellingRunning by remember { mutableStateOf(false) }
+    var isSelectionRunning by remember { mutableStateOf(false) }
     
     val currentMode = if (isTestMode) "测试模式" else "学习模式"
 
@@ -201,6 +202,7 @@ fun FloatingWindowContent(
             learnedCount = AppAccessibilityService.getLearnedCount()
             hasOcrPermission = AppAccessibilityService.instance?.isScreenCaptureReady() ?: false
             isSpellingRunning = AppAccessibilityService.isSpellingRunning()
+            isSelectionRunning = AppAccessibilityService.isSelectionRunning()
         }
     }
 
@@ -426,15 +428,15 @@ fun FloatingWindowContent(
                         
                         // 题型专用按钮
                         Text(
-                            text = if (isSpellingRunning) "运行状态" else "题型选择",
+                            text = if (isSpellingRunning || isSelectionRunning) "运行状态" else "题型选择",
                             style = MaterialTheme.typography.bodySmall,
                             fontSize = 11.sp,
-                            color = if (isSpellingRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                            color = if (isSpellingRunning || isSelectionRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                         
                         if (isSpellingRunning) {
-                            // 运行中显示停止按钮
+                            // 拼写题运行中显示停止按钮
                             Button(
                                 onClick = {
                                     AppAccessibilityService.stopSpelling()
@@ -446,6 +448,22 @@ fun FloatingWindowContent(
                             ) {
                                 Text(
                                     text = "⏹️ 停止拼写",
+                                    fontSize = 13.sp
+                                )
+                            }
+                        } else if (isSelectionRunning) {
+                            // 选择题运行中显示停止按钮
+                            Button(
+                                onClick = {
+                                    AppAccessibilityService.stopSelection()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Text(
+                                    text = "⏹️ 停止选择",
                                     fontSize = 13.sp
                                 )
                             }

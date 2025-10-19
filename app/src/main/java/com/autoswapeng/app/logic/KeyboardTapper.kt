@@ -28,7 +28,7 @@ class KeyboardTapper(
             'u' to Pair(0.679f, 0.755f),
             'i' to Pair(0.783f, 0.755f),
             'o' to Pair(0.887f, 0.755f),
-            'p' to Pair(0.945f, 0.755f),
+            'p' to Pair(0.920f, 0.755f),  // 向左收敛，避免边界误触
             
             // 第二行
             'a' to Pair(0.107f, 0.822f),
@@ -61,36 +61,42 @@ class KeyboardTapper(
     /**
      * 输入文本（通过点击键盘）
      */
-    suspend fun typeText(text: String, dedupeFirstChar: Boolean = false) {
+    suspend fun typeText(
+        text: String,
+        dedupeFirstChar: Boolean = false,
+        initialDelayMs: Long = 140
+    ) {
         val lowerText = text.lowercase()
-        LogManager.i(TAG, "开始输入文本: $text")
+        LogManager.i(TAG, "开始输入文本: $text (使用挂起式点击)")
         
-        // 开始输入前稍微等待（确保键盘动画/焦点稳定）。常驻键盘场景稍短
-        delay(140)
+        // 开始输入前稍微等待（确保键盘动画/焦点稳定）
+        delay(initialDelayMs)
         
         for ((index, char) in lowerText.withIndex()) {
             var coord = KEYBOARD_LAYOUT[char]
             if (coord != null) {
-                // 首键坐标微调：p/l 等右侧键向左收敛，降低边界抖动
-                if (index == 0) {
-                    coord = when (char) {
-                        'p' -> Pair(0.930f, coord.second) // 原约0.945，向左收敛
-                        'l' -> Pair(0.925f, coord.second) // 原约0.939
-                        else -> coord
-                    }
-                }
                 val x = (coord.first * screenWidth).toInt()
                 val y = (coord.second * screenHeight).toInt()
                 
-                LogManager.d(TAG, "[$index] 点击键盘 '$char' at ($x, $y)")
-                if (index == 0 && dedupeFirstChar) {
-                    // 无退格首键稳定：轻点 -> 稳定等待(280ms)（给内置键盘完成合成）
-                    tap(x, y)
-                    delay(280)
-                 } else {
-                    tap(x, y)
-                     // 为第一个按键设置更长的延迟，避免因系统预测/抬起去抖导致的重复
-                    if (index == 0) delay(170) else delay(100)
+                LogManager.d(TAG, "[$index] 挂起式点击键盘 '$char' at ($x, $y)")
+                
+                // 使用挂起式点击，等待手势完成（手势本身只有30ms）
+                tap(x, y)
+                
+                // 根据 Android Accessibility 最佳实践：
+                // 手势短促（30ms），间隔适中（150-200ms）
+                // 文档建议：每个键间隔 100~200ms
+                if (index == 0) {
+                    // 首键需要更长延迟，让输入法完全初始化
+                    LogManager.d(TAG, "首键延迟 500ms（输入法初始化）")
+                    delay(500)
+                } else if (index == 1) {
+                    // 第二键也容易重复，适当延长
+                    LogManager.d(TAG, "第二键延迟 300ms")
+                    delay(300)
+                } else {
+                    // 后续键使用文档建议的标准间隔
+                    delay(200)
                 }
             } else {
                 LogManager.w(TAG, "字符 '$char' 不在键盘映射中")

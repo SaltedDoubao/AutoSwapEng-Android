@@ -84,6 +84,54 @@ class WordMatcher {
         return best
     }
 
+    /**
+     * 根据中文释义在4个英文单词中选择最匹配的一个（用于“中→英”选择题）。
+     * 逻辑：
+     * - 将传入 definition 按与 learn 相同规则解析（词性+中文片段分词）
+     * - 对每个英文选项，如果该词在记忆库中出现，则与其已学习的 parts 做相似度评分
+     * - 取分数最高的选项；若全未学习，则返回0
+     */
+    fun matchByDefinition(definition: String, englishOptions: List<String>): Int {
+        val parsedDef = parseWithPos(normalize(definition))
+        if (englishOptions.isEmpty()) return 0
+        val scores = DoubleArray(englishOptions.size)
+        englishOptions.forEachIndexed { idx, optWordRaw ->
+            val optWord = normalize(optWordRaw)
+            val entry = memory[optWord]
+            if (entry == null) {
+                scores[idx] = 0.0
+            } else {
+                var score = 0.0
+                var count = 1
+                for (j in parsedDef.parts.indices) {
+                    for (k in entry.parts.indices) {
+                        // 词性一致加分，否则弱化
+                        if (entry.posLen[k] != parsedDef.posLen.getOrElse(j) { 0 }) {
+                            count++
+                            continue
+                        }
+                        val left = entry.parts[k].drop(entry.posLen[k])
+                        val right = parsedDef.parts[j].drop(parsedDef.posLen[j])
+                        val lTokens = splitTokens(left)
+                        val rTokens = splitTokens(right)
+                        for (lt in lTokens) {
+                            for (rt in rTokens) {
+                                val s = levenshteinSimilarity(lt, rt)
+                                score += s
+                                if (s >= 98) score += 1000
+                                count++
+                            }
+                        }
+                    }
+                }
+                scores[idx] = score / count
+            }
+        }
+        var best = 0
+        for (i in 1 until scores.size) if (scores[i] > scores[best]) best = i
+        return best
+    }
+
     private fun parseWithPos(text: String): LearnedEntry {
         val parts = mutableListOf<String>()
         val posLen = mutableListOf<Int>()

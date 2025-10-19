@@ -23,6 +23,11 @@ class SpellingHandler(
     private val tap: suspend (Int, Int) -> Unit,
     private val onProgress: ((String) -> Unit)? = null
 ) {
+    // 通过服务写入文本（由 AppAccessibilityService 提供）
+    private val setTextOnInput: ((String) -> Boolean)? get() =
+        com.autoswapeng.app.accessibility.AppAccessibilityService.instance?.let { svc ->
+            { text -> svc.setTextOnInput(text) }
+        }
     
     // 延迟初始化KeyboardTapper（使用实际屏幕尺寸）
     private val keyboardTapper: KeyboardTapper by lazy {
@@ -33,34 +38,6 @@ class SpellingHandler(
         )
     }
     
-    /**
-     * 安全输入：先输入首字母并OCR校验是否重复，如重复则退格一次；随后输入剩余字母
-     */
-    private suspend fun typeWordSafely(word: String) {
-        if (word.isEmpty()) return
-        val lower = word.lowercase()
-
-        // 先单独输入首字母（无退格），仅进行稳定等待
-        val first = lower.first().toString()
-        LogManager.d(TAG, "安全输入-首字母: '$first'")
-        keyboardTapper.typeText(first, dedupeFirstChar = true)
-        // 加长首键到剩余字母的等待，给内置键盘足够的提交时间
-        delay(300)
-
-        // 第二个字符单独敲击并延时，继续稳定化，缓解部分键盘二击误触
-        if (lower.length >= 2) {
-            val second = lower[1].toString()
-            keyboardTapper.typeText(second)
-            delay(160)
-        }
-
-        // 输入剩余字母（不再去抖，避免造成双击）
-        val rest = if (lower.length > 2) lower.drop(2) else ""
-        if (rest.isNotEmpty()) {
-            keyboardTapper.typeText(rest, dedupeFirstChar = false)
-        }
-    }
-
     companion object {
         private const val TAG = "SpellingHandler"
         private const val TOTAL_QUESTIONS = 25
@@ -162,7 +139,7 @@ class SpellingHandler(
     private suspend fun handleSingleQuestion(questionNum: Int) {
         LogManager.i(TAG, "处理第 $questionNum 题")
         
-        // 步骤1：通过点击键盘输入错误答案
+        // 步骤1：先尝试直接写入错误答案，失败再坐标敲击
         LogManager.d(TAG, "通过点击键盘输入错误答案: $DUMMY_INPUT")
         // 点击输入框以确保焦点
         run {
@@ -175,7 +152,10 @@ class SpellingHandler(
             LogManager.d(TAG, "点击输入框以确保焦点: ($fx, $fy)")
             tap(fx, fy)
         }
-        keyboardTapper.typeText(DUMMY_INPUT)
+        val wroteDummy = setTextOnInput?.invoke(DUMMY_INPUT) ?: false
+        if (!wroteDummy) {
+            keyboardTapper.typeText(DUMMY_INPUT)
+        }
         delay(500)  // 等待输入动画完成
         
         // 点击键盘上的确认键
@@ -225,11 +205,14 @@ class SpellingHandler(
         
         LogManager.i(TAG, "✓ 识别到正确答案: $correctWord")
         
-        // 步骤3：清空输入（点击退格键）
-        // 需要清除之前输入的16个a
-        LogManager.d(TAG, "清空输入（点击退格20次，确保清空）")
-        keyboardTapper.clearInput(times = 20)
-        delay(800)  // 等待清空完成
+        // 步骤3：清空输入（优先直接覆盖为空，失败则少量退格）
+        LogManager.d(TAG, "清空输入：优先直接覆盖为空，失败则退格5次")
+        val cleared = setTextOnInput?.invoke("") ?: false
+        if (!cleared) {
+            // 只需清空错误答案（16个a），退格5次足够（错误答案会被小程序自动清除大部分）
+            keyboardTapper.clearInput(times = 5)
+        }
+        delay(500)  // 等待清空完成
         
         // 再次点击输入框以确保焦点（某些设备清空后焦点会短暂丢失）
         run {
@@ -244,10 +227,22 @@ class SpellingHandler(
             delay(150)
         }
 
-        // 步骤4：输入正确答案（通过点击键盘）
+        // 步骤4：输入正确答案（优先直接写入，失败再使用退格预热策略）
         LogManager.d(TAG, "通过点击键盘输入正确答案: $correctWord")
-        // 使用首字母OCR校验的安全输入流程，避免首字母重复
-        typeWordSafely(correctWord)
+        val wrote = setTextOnInput?.invoke(correctWord) ?: false
+        if (!wrote) {
+            // 退格预热策略：少量退格让输入法稳定，避免与新输入冲突
+            LogManager.d(TAG, "退格预热策略：退格3次 + 长延迟")
+            keyboardTapper.clearInput(times = 3)
+            kotlinx.coroutines.delay(800)  // 长延迟确保输入法完全稳定
+            
+            // 现在输入法已完全稳定，一次性整词输入
+            keyboardTapper.typeText(
+                text = correctWord,
+                dedupeFirstChar = false,
+                initialDelayMs = 300  // 额外初始延迟
+            )
+        }
         delay(600)  // 等待输入完成
         
         // 步骤5：点击键盘确认键，进入下一题

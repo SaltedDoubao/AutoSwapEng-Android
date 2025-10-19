@@ -14,6 +14,9 @@ import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.core.app.NotificationCompat
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -30,6 +33,7 @@ import com.autoswapeng.app.logic.Regions
 import com.autoswapeng.app.config.TargetApps
 import com.autoswapeng.app.logic.QuestionTypeDetector
 import com.autoswapeng.app.logic.SpellingHandler
+import com.autoswapeng.app.logic.SelectionHandler
 import com.autoswapeng.app.log.LogManager
 import com.autoswapeng.app.debug.NodeDebugger
 
@@ -129,7 +133,8 @@ class AppAccessibilityService : AccessibilityService() {
             service.spellingHandler?.reset()
             
             LogManager.i(TAG, "开始拼写题流程")
-            service.serviceScope.launch {
+            service.spellingJob?.cancel()
+            service.spellingJob = service.serviceScope.launch {
                 try {
                     service.spellingHandler?.handleSpelling()
                     LogManager.i(TAG, "拼写题流程完成")
@@ -155,15 +160,37 @@ class AppAccessibilityService : AccessibilityService() {
          * 检查拼写题是否正在运行
          */
         fun isSpellingRunning(): Boolean {
-            return instance?.spellingHandler?.isRunning() ?: false
+            return instance?.spellingJob?.isActive == true
         }
         
         /**
          * 开始选择题
          */
         fun startSelection() {
-            LogManager.w(TAG, "选择题功能开发中，等待UI截图")
-            // TODO: 实现选择题流程
+            val service = instance ?: run {
+                LogManager.w(TAG, "服务未运行")
+                return
+            }
+            // 开启测试模式，事件循环将自动识别并作答
+            service.isTestMode = true
+            service.isServiceEnabled = true
+            service.selectionHandler.reset()
+            LogManager.i(TAG, "开始选择题流程（测试模式）")
+        }
+        
+        /**
+         * 停止选择题
+         */
+        fun stopSelection() {
+            instance?.selectionHandler?.cancel()
+            LogManager.i(TAG, "请求停止选择题流程")
+        }
+        
+        /**
+         * 检查选择题是否正在运行
+         */
+        fun isSelectionRunning(): Boolean {
+            return instance?.selectionHandler?.isRunning() == true
         }
         
         /**
@@ -178,6 +205,13 @@ class AppAccessibilityService : AccessibilityService() {
 
     private val matcher = WordMatcher()
     private val questionDetector = QuestionTypeDetector()
+    private val selectionHandler = SelectionHandler(
+        batchSize = 5,
+        onLearn = { detection -> handleLearningPage(detection) },
+        onSelect = { detection, texts -> handleWordSelection(detection, texts) },
+        onSkip = { clickAndSwipe() },
+        onLog = { LogManager.i(TAG, it) }
+    )
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var spellingJob: Job? = null
     
@@ -288,16 +322,39 @@ class AppAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             // 读取所有文本节点
             val texts = snapshotRoot.collectTextNodes()
+            
+            // 日志优化：仅在开发模式或文本节点变化时记录
             if (texts.isEmpty()) {
                 LogManager.d(TAG, "未检测到文本节点")
-                return@launch
+                // 不立即返回，让后续逻辑有机会处理空页面（可能正在加载）
+            } else {
+                LogManager.d(TAG, "检测到 ${texts.size} 个文本节点")
+                // 调试：记录前几个文本内容
+                texts.take(5).forEach { 
+                    LogManager.d(TAG, "  节点: '${it.text}' at ${it.bounds}")
+                }
             }
-            
-            LogManager.d(TAG, "检测到 ${texts.size} 个文本节点")
 
             // 使用题型检测器识别当前题型
             val detection = questionDetector.detectQuestionType(texts)
             LogManager.i(TAG, "题型: ${detection.type} (置信度: ${detection.confidence})")
+            
+            // 记录检测结果详情
+            detection.word?.let { LogManager.d(TAG, "  word='$it'") }
+            detection.definition?.let { LogManager.d(TAG, "  definition='$it'") }
+            if (detection.options.isNotEmpty()) {
+                LogManager.d(TAG, "  options=${detection.options}")
+            }
+
+            // 交给选择题批处理器优先处理（学5题→选5题），若返回true表示已消费
+            try {
+                val consumed = selectionHandler.handle(detection, texts)
+                LogManager.d(TAG, "SelectionHandler.handle() consumed=$consumed")
+                if (consumed) return@launch
+            } catch (e: Exception) {
+                LogManager.e(TAG, "SelectionHandler 处理出错: ${e.message}")
+                e.printStackTrace()
+            }
             
             when (detection.type) {
                 QuestionTypeDetector.QuestionType.COMPLETION -> {
@@ -355,29 +412,47 @@ class AppAccessibilityService : AccessibilityService() {
         detection: QuestionTypeDetector.DetectionResult,
         texts: List<NodeText>
     ) {
-        val word = detection.word ?: return
         val options = detection.options
-        
         if (options.size < 4) {
             LogManager.w(TAG, "选项不足4个")
             return
         }
-        
+
         if (isTestMode) {
-            // 测试模式：自动答题
-            val bestIndex = matcher.match(word, options)
-            val optionNodes = texts.filter { it.text in options }
-            if (bestIndex < optionNodes.size) {
-                val target = optionNodes[bestIndex]
-                val (cx, cy) = centerOf(target.bounds)
+            // 根据方向决定匹配方式
+            val isCnOptions = options.any { it.any { ch -> ch in '\u4e00'..'\u9fff' } }
+            val isEnOptions = options.all { it.matches(Regex("^[A-Za-z]+$")) }
+
+            val bestIndex = when {
+                detection.word != null && isCnOptions -> {
+                    matcher.match(detection.word, options)
+                }
+                detection.definition != null && isEnOptions -> {
+                    matcher.matchByDefinition(detection.definition, options)
+                }
+                else -> {
+                    // 容错：如果无法判断方向，则默认按 learn 过的信息进行中文匹配
+                    detection.word?.let { matcher.match(it, options) } ?: 0
+                }
+            }
+
+            // 1) 优先通过文本节点精确匹配到可点击区域
+            val targetNode = findOptionNodeForIndex(bestIndex, options, texts)
+            if (targetNode != null) {
+                val (cx, cy) = centerOf(targetNode.bounds)
                 tap(cx, cy)
-                LogManager.i(TAG, "[$word] 选择答案: ${options[bestIndex]}")
+                LogManager.i(TAG, "选择题命中 index=$bestIndex 文本='${options[bestIndex]}' at (${cx}, ${cy})")
+            } else {
+                // 2) 退化：按预设行坐标点击
+                val rowY = Regions.SELEC_Y.getOrNull(bestIndex + 1) ?: Regions.SELEC_Y.last()
+                val (fx, fy) = ratioToScreen(Regions.SELEC_X, rowY)
+                tap(fx, fy)
+                LogManager.w(TAG, "未定位到目标节点，按行坐标兜底点击 index=$bestIndex at (${fx}, ${fy})")
             }
         } else {
-            // 学习模式：跳过
             LogManager.d(TAG, "学习模式，跳过选择题")
         }
-        
+
         clickAndSwipe()
     }
     
@@ -400,14 +475,53 @@ class AppAccessibilityService : AccessibilityService() {
      * 处理未知类型（兼容旧逻辑）
      */
     private suspend fun handleUnknownType(texts: List<NodeText>) {
+        val englishRegex = Regex("^[A-Za-z]+$")
+        val hasEnglishOnly = texts.any { it.text.matches(englishRegex) } &&
+            texts.none { it.text.any { ch -> ch in '\u4e00'..'\u9fff' } }
+
+        if (hasEnglishOnly) {
+            // 仅有英文单词，推测处于学习卡片未展开状态：点击卡片显示中文释义
+            val (fx, fy) = ratioToScreen(Regions.CLICK.x, Regions.CLICK.y)
+            tap(fx, fy)
+            LogManager.i(TAG, "学习页未展开，点击卡片以显示中文释义")
+            return
+        }
+
         val wordNode = texts.minByOrNull { distanceTo(Regions.PWORD, it.bounds) }
         val chinNode = texts.minByOrNull { distanceTo(Regions.PCHIN, it.bounds) }
-        
+
         if (wordNode != null && chinNode != null && wordNode.text.matches(Regex("[A-Za-z]+"))) {
             matcher.learn(wordNode.text, listOf(chinNode.text))
         }
-        
+
         clickAndSwipe()
+    }
+
+    /**
+     * 在文本节点中定位第 index 个选项的节点，考虑前缀（A./B./C./D.）与空白差异
+     */
+    private fun findOptionNodeForIndex(index: Int, options: List<String>, texts: List<NodeText>): NodeText? {
+        if (index !in options.indices) return null
+        val target = normalizeOpt(options[index])
+
+        // 先按中文/英文分别策略匹配
+        val candidates = texts.filter { n ->
+            val norm = normalizeOpt(n.text)
+            norm == target || norm.contains(target) || target.contains(norm)
+        }
+        if (candidates.isNotEmpty()) return candidates.minByOrNull { distanceTo(Regions.PSELC, it.bounds) }
+
+        // 如果按文本匹配不到，退化：根据纵向行序点击
+        return null
+    }
+
+    private fun normalizeOpt(text: String): String {
+        // 去除选项前缀，如 "A. ", "B) " 等
+        val noPrefix = text.replace(Regex("^[A-Da-d][\\.．、\"\\)\\)]\\s*"), "")
+        return noPrefix
+            .replace("\u00A0", " ") // nbsp
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
     
     /**
@@ -445,22 +559,39 @@ class AppAccessibilityService : AccessibilityService() {
 
     /**
      * 带回调的点击，挂起直到系统完成手势（防止快速连续点击导致键盘重复上屏）
+     * 根据 Android Accessibility 最佳实践：短促点击，长延迟
      */
     private suspend fun tapAwait(x: Float, y: Float) {
+        // 创建静态的单点路径（无抖动）
         val path = Path().apply { moveTo(x, y) }
+        
+        // 使用短促的手势持续时间（30ms），避免被输入法误判为长按
+        // 参考文档：手势持续时间过长会导致输入法重复处理
         val stroke = GestureDescription.StrokeDescription(path, 0, 30)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        
+        val startTime = System.currentTimeMillis()
+        
         return suspendCancellableCoroutine { cont ->
             dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
                     super.onCompleted(gestureDescription)
-                    if (!cont.isCompleted) cont.resume(Unit)
+                    val duration = System.currentTimeMillis() - startTime
+                    if (!cont.isCompleted) {
+                        LogManager.d(TAG, "✓ 手势完成: ($x, $y), 耗时: ${duration}ms")
+                        cont.resume(Unit)
+                    } else {
+                        LogManager.w(TAG, "⚠️ 手势回调重复: ($x, $y)")
+                    }
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
                     super.onCancelled(gestureDescription)
-                    // 将取消也视为完成，避免卡死；必要时可改为异常
-                    if (!cont.isCompleted) cont.resume(Unit)
+                    val duration = System.currentTimeMillis() - startTime
+                    if (!cont.isCompleted) {
+                        LogManager.w(TAG, "✗ 手势取消: ($x, $y), 耗时: ${duration}ms")
+                        cont.resume(Unit)
+                    }
                 }
             }, null)
         }
@@ -473,6 +604,123 @@ class AppAccessibilityService : AccessibilityService() {
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 300)
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /**
+     * 直接向当前输入框写入文本（优先使用，无需坐标敲击）。
+     * 返回是否写入成功。
+     */
+    fun setTextOnInput(text: String): Boolean {
+        LogManager.d(TAG, "尝试写入文本到输入框: '$text'")
+        val root = rootInActiveWindow ?: return false
+
+        // 1) 优先取当前焦点输入框
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused != null) {
+            LogManager.d(TAG, "找到焦点输入框")
+            val ok = performSetText(focused, text)
+            if (ok) {
+                LogManager.i(TAG, "✓ 通过焦点输入框成功写入文本")
+                return true
+            }
+        }
+
+        // 2) 按区域和可编辑性兜底查找
+        val fallback = findEditableNodeNearInput(root)
+        if (fallback != null) {
+            LogManager.d(TAG, "找到可编辑节点（区域匹配）")
+            val ok = performSetText(fallback, text)
+            if (ok) {
+                LogManager.i(TAG, "✓ 通过区域匹配成功写入文本")
+                return true
+            }
+        }
+
+        // 3) 终极备选：剪贴板+粘贴
+        LogManager.w(TAG, "ACTION_SET_TEXT 失败，尝试剪贴板粘贴")
+        return tryClipboardPaste(text)
+    }
+
+    private fun performSetText(node: AccessibilityNodeInfo, text: String): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        LogManager.d(TAG, "performAction(ACTION_SET_TEXT) = $result")
+        return result
+    }
+
+    /**
+     * 通过剪贴板粘贴文本（终极备选）
+     */
+    private fun tryClipboardPaste(text: String): Boolean {
+        return try {
+            // 将文本放入剪贴板
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            if (clipboard == null) {
+                LogManager.e(TAG, "无法获取剪贴板服务")
+                return false
+            }
+            
+            val clip = ClipData.newPlainText("autoswapeng", text)
+            clipboard.setPrimaryClip(clip)
+            LogManager.d(TAG, "文本已放入剪贴板")
+            
+            // 查找输入框并执行粘贴
+            val root = rootInActiveWindow ?: return false
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findEditableNodeNearInput(root)
+            
+            if (focused != null) {
+                // 先清空（如果有内容）
+                performSetText(focused, "")
+                Thread.sleep(50)
+                
+                // 执行粘贴
+                val pasteOk = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                LogManager.d(TAG, "performAction(ACTION_PASTE) = $pasteOk")
+                
+                if (pasteOk) {
+                    LogManager.i(TAG, "✓ 通过剪贴板粘贴成功写入文本")
+                    return true
+                }
+            }
+            
+            LogManager.w(TAG, "找不到可粘贴的输入框节点")
+            false
+        } catch (e: Exception) {
+            LogManager.e(TAG, "剪贴板粘贴失败: ${e.message}")
+            false
+        }
+    }
+
+    private fun findEditableNodeNearInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val dm = resources.displayMetrics
+        val region = com.autoswapeng.app.ocr.MiniProgramRegions.Spelling.INPUT_AREA
+            .toPixelRect(dm.widthPixels, dm.heightPixels)
+
+        val q: ArrayDeque<AccessibilityNodeInfo> = ArrayDeque()
+        q.add(root)
+        val bounds = android.graphics.Rect()
+        var found: AccessibilityNodeInfo? = null
+        
+        while (q.isNotEmpty()) {
+            val n = q.removeFirst()
+            n.getBoundsInScreen(bounds)
+            val className = n.className?.toString() ?: ""
+            val editable = (n.isEditable) || className.contains("EditText", true)
+            if (editable && android.graphics.Rect.intersects(bounds, region)) {
+                found = n
+                LogManager.d(TAG, "找到可编辑节点: class=${className}, editable=${n.isEditable}, bounds=$bounds")
+                break
+            }
+            for (i in 0 until n.childCount) n.getChild(i)?.let(q::add)
+        }
+        
+        if (found == null) {
+            LogManager.w(TAG, "未找到可编辑节点（区域: $region）")
+        }
+        return found
     }
 
     private fun ratioToScreen(rx: Float, ry: Float): Pair<Float, Float> {
