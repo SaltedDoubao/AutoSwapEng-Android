@@ -2,41 +2,42 @@ package com.autoswapeng.app.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.app.Notification
+import android.graphics.Path
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Path
-import android.graphics.Rect
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.core.app.NotificationCompat
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import com.autoswapeng.app.logic.WordMatcher
-import com.autoswapeng.app.R
-import com.autoswapeng.app.logic.Regions
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import com.autoswapeng.app.config.TargetApps
-import com.autoswapeng.app.logic.QuestionTypeDetector
-import com.autoswapeng.app.logic.SpellingHandler
-import com.autoswapeng.app.logic.SelectionHandler
 import com.autoswapeng.app.log.LogManager
 import com.autoswapeng.app.debug.NodeDebugger
+import com.autoswapeng.app.ocr.MiniProgramRegions
 
+/**
+ * 无障碍服务
+ * 
+ * 保留基础框架，自动处理逻辑已清空，待重写
+ * 
+ * TODO: 待实现功能
+ * - [ ] 题型识别与检测
+ * - [ ] 单词学习与记忆
+ * - [ ] 选择题自动答题
+ * - [ ] 拼写题自动处理
+ * - [ ] 听力题自动处理
+ */
 class AppAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -49,14 +50,6 @@ class AppAccessibilityService : AccessibilityService() {
             private set
         
         /**
-         * 启用或禁用自动操作功能
-         */
-        fun setEnabled(enabled: Boolean) {
-            instance?.isServiceEnabled = enabled
-            LogManager.i(TAG, "自动操作${if (enabled) "已启用" else "已禁用"}")
-        }
-        
-        /**
          * 检查服务是否正在运行
          */
         fun isRunning(): Boolean = instance != null
@@ -67,12 +60,11 @@ class AppAccessibilityService : AccessibilityService() {
         fun isEnabled(): Boolean = instance?.isServiceEnabled ?: false
         
         /**
-         * 设置运行模式
-         * @param testMode true=测试模式（自动答题），false=学习模式（仅学习）
+         * 启用或禁用自动操作功能
          */
-        fun setTestMode(testMode: Boolean) {
-            instance?.isTestMode = testMode
-            LogManager.i(TAG, "切换到${if (testMode) "测试模式" else "学习模式"}")
+        fun setEnabled(enabled: Boolean) {
+            instance?.isServiceEnabled = enabled
+            LogManager.i(TAG, "自动操作${if (enabled) "已启用" else "已禁用"}")
         }
         
         /**
@@ -81,9 +73,17 @@ class AppAccessibilityService : AccessibilityService() {
         fun isTestMode(): Boolean = instance?.isTestMode ?: false
         
         /**
-         * 获取学习的单词数量
+         * 设置运行模式
          */
-        fun getLearnedCount(): Int = instance?.matcher?.getLearnedCount() ?: 0
+        fun setTestMode(testMode: Boolean) {
+            instance?.isTestMode = testMode
+            LogManager.i(TAG, "切换到${if (testMode) "测试模式" else "学习模式"}")
+        }
+        
+        /**
+         * 获取学习的单词数量（TODO: 待实现）
+         */
+        fun getLearnedCount(): Int = 0
         
         /**
          * 调试：检测当前页面的所有节点
@@ -116,116 +116,75 @@ class AppAccessibilityService : AccessibilityService() {
         }
         
         /**
-         * 开始拼写题
+         * TODO: 开始拼写题流程
          */
         fun startSpelling() {
-            val service = instance ?: run {
-                LogManager.w(TAG, "服务未运行")
-                return
-            }
-            
-            if (service.spellingHandler == null) {
-                LogManager.w(TAG, "拼写处理器未初始化，请先授权OCR")
-                return
-            }
-            
-            // 重置状态
-            service.spellingHandler?.reset()
-            
-            LogManager.i(TAG, "开始拼写题流程")
-            service.spellingJob?.cancel()
-            service.spellingJob = service.serviceScope.launch {
-                try {
-                    service.spellingHandler?.handleSpelling()
-                    LogManager.i(TAG, "拼写题流程完成")
-                } catch (e: Exception) {
-                    LogManager.e(TAG, "拼写题流程出错: ${e.message}")
-                    e.printStackTrace()
-                }
-            }
+            LogManager.w(TAG, "拼写题功能待实现")
         }
         
         /**
-         * 停止拼写题
+         * TODO: 停止拼写题流程
          */
         fun stopSpelling() {
-            instance?.let { svc ->
-                svc.spellingHandler?.cancel()
-                svc.spellingJob?.cancel()
-            }
-            LogManager.i(TAG, "请求停止拼写题流程")
+            LogManager.w(TAG, "拼写题功能待实现")
         }
         
         /**
-         * 检查拼写题是否正在运行
+         * TODO: 检查拼写题是否正在运行
          */
-        fun isSpellingRunning(): Boolean {
-            return instance?.spellingJob?.isActive == true
-        }
+        fun isSpellingRunning(): Boolean = false
         
         /**
-         * 开始选择题
+         * TODO: 开始选择题流程
          */
         fun startSelection() {
             val service = instance ?: run {
-                LogManager.w(TAG, "服务未运行")
+                LogManager.e(TAG, "服务未运行，无法开始选择题")
                 return
             }
-            // 开启测试模式，事件循环将自动识别并作答
-            service.isTestMode = true
-            service.isServiceEnabled = true
-            service.selectionHandler.reset()
-            LogManager.i(TAG, "开始选择题流程（测试模式）")
+            if (service.selectionJob?.isActive == true) {
+                LogManager.w(TAG, "选择题任务已在运行中")
+                return
+            }
+            service.selectionJob = service.serviceScope.launch {
+                service.handleSelectionOnce()
+            }
         }
         
         /**
-         * 停止选择题
+         * TODO: 停止选择题流程
          */
         fun stopSelection() {
-            instance?.selectionHandler?.cancel()
-            LogManager.i(TAG, "请求停止选择题流程")
+            val service = instance ?: return
+            service.selectionJob?.cancel()
+            service.selectionJob = null
+            LogManager.i(TAG, "选择题任务已停止")
         }
         
         /**
-         * 检查选择题是否正在运行
+         * TODO: 检查选择题是否正在运行
          */
-        fun isSelectionRunning(): Boolean {
-            return instance?.selectionHandler?.isRunning() == true
-        }
+        fun isSelectionRunning(): Boolean = instance?.selectionJob?.isActive == true
         
         /**
-         * 开始听力题
+         * TODO: 开始听力题流程
          */
         fun startListening() {
-            LogManager.w(TAG, "听力题功能开发中，等待UI截图")
-            // TODO: 实现听力题流程
+            LogManager.w(TAG, "听力题功能待实现")
         }
-        
     }
 
-    private val matcher = WordMatcher()
-    private val questionDetector = QuestionTypeDetector()
-    private val selectionHandler = SelectionHandler(
-        batchSize = 5,
-        onLearn = { detection -> handleLearningPage(detection) },
-        onSelect = { detection, texts -> handleWordSelection(detection, texts) },
-        onSkip = { clickAndSwipe() },
-        onLog = { LogManager.i(TAG, it) }
-    )
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private var spellingJob: Job? = null
     
     // OCR相关
     private var screenCaptureHelper: ScreenCaptureHelper? = null
-    private var spellingHandler: SpellingHandler? = null
+    
+    // 选择题任务
+    private var selectionJob: Job? = null
     
     // 前台服务状态
     @Volatile
     private var isForegroundServiceRunning = false
-    
-    // 防抖：避免短时间内重复处理
-    private var lastProcessTime = 0L
-    private val minProcessInterval = 500L  // 最小处理间隔（毫秒）
     
     // 服务启用状态
     @Volatile
@@ -242,7 +201,7 @@ class AppAccessibilityService : AccessibilityService() {
         // 创建通知渠道（但暂不启动前台服务）
         createNotificationChannel()
         
-        LogManager.i(TAG, "无障碍服务已连接")
+        LogManager.i(TAG, "✓ 无障碍服务已连接")
     }
     
     /**
@@ -300,6 +259,14 @@ class AppAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * 无障碍事件处理
+     * 
+     * TODO: 实现自动处理逻辑
+     * - 检测目标应用
+     * - 识别题型
+     * - 执行相应操作
+     */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // 检查服务是否启用
         if (!isServiceEnabled) return
@@ -310,439 +277,24 @@ class AppAccessibilityService : AccessibilityService() {
         
         // 记录窗口状态变化
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            LogManager.i(TAG, "页面切换: ${event.className}")
+            LogManager.d(TAG, "页面切换: ${event.className}")
         }
         
-        // 防抖处理
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastProcessTime < minProcessInterval) return
-        lastProcessTime = currentTime
-        
-        val snapshotRoot = rootInActiveWindow ?: return
-        serviceScope.launch {
-            // 读取所有文本节点
-            val texts = snapshotRoot.collectTextNodes()
-            
-            // 日志优化：仅在开发模式或文本节点变化时记录
-            if (texts.isEmpty()) {
-                LogManager.d(TAG, "未检测到文本节点")
-                // 不立即返回，让后续逻辑有机会处理空页面（可能正在加载）
-            } else {
-                LogManager.d(TAG, "检测到 ${texts.size} 个文本节点")
-                // 调试：记录前几个文本内容
-                texts.take(5).forEach { 
-                    LogManager.d(TAG, "  节点: '${it.text}' at ${it.bounds}")
-                }
-            }
-
-            // 使用题型检测器识别当前题型
-            val detection = questionDetector.detectQuestionType(texts)
-            LogManager.i(TAG, "题型: ${detection.type} (置信度: ${detection.confidence})")
-            
-            // 记录检测结果详情
-            detection.word?.let { LogManager.d(TAG, "  word='$it'") }
-            detection.definition?.let { LogManager.d(TAG, "  definition='$it'") }
-            if (detection.options.isNotEmpty()) {
-                LogManager.d(TAG, "  options=${detection.options}")
-            }
-
-            // 交给选择题批处理器优先处理（学5题→选5题），若返回true表示已消费
-            try {
-                val consumed = selectionHandler.handle(detection, texts)
-                LogManager.d(TAG, "SelectionHandler.handle() consumed=$consumed")
-                if (consumed) return@launch
-            } catch (e: Exception) {
-                LogManager.e(TAG, "SelectionHandler 处理出错: ${e.message}")
-                e.printStackTrace()
-            }
-            
-            when (detection.type) {
-                QuestionTypeDetector.QuestionType.COMPLETION -> {
-                    // 完成页面，点击完成按钮
-                    LogManager.i(TAG, "学习任务完成！")
-                    val (fx, fy) = ratioToScreen(Regions.FINI.x, Regions.FINI.y)
-                    tap(fx, fy)
-                }
-                
-                QuestionTypeDetector.QuestionType.WORD_SELECTION -> {
-                    // 单词选择题
-                    handleWordSelection(detection, texts)
-                }
-                
-                QuestionTypeDetector.QuestionType.LEARNING -> {
-                    // 学习模式页面
-                    handleLearningPage(detection)
-                }
-                
-                QuestionTypeDetector.QuestionType.WORD_SPELLING -> {
-                    // 拼写题：使用OCR处理
-                    if (isScreenCaptureReady()) {
-                        LogManager.i(TAG, "检测到拼写题，使用OCR处理")
-                        spellingHandler?.let { handler ->
-                            spellingJob?.cancel()
-                            spellingJob = serviceScope.launch {
-                                handler.handleSpelling()
-                            }
-                        }
-                    } else {
-                        LogManager.w(TAG, "检测到拼写题，但OCR未初始化")
-                        clickAndSwipe()
-                    }
-                }
-                
-                QuestionTypeDetector.QuestionType.LISTENING -> {
-                    // 听力题：暂不支持
-                    LogManager.w(TAG, "检测到听力题，暂不支持")
-                    clickAndSwipe()
-                }
-                
-                QuestionTypeDetector.QuestionType.UNKNOWN -> {
-                    // 未知类型，尝试通用处理
-                    LogManager.w(TAG, "未知题型，尝试通用处理")
-                    handleUnknownType(texts)
-                }
-            }
-        }
-    }
-    
-    /**
-     * 处理单词选择题
-     */
-    private suspend fun handleWordSelection(
-        detection: QuestionTypeDetector.DetectionResult,
-        texts: List<NodeText>
-    ) {
-        val options = detection.options
-        if (options.size < 4) {
-            LogManager.w(TAG, "选项不足4个")
-            return
-        }
-
-        if (isTestMode) {
-            // 根据方向决定匹配方式
-            val isCnOptions = options.any { it.any { ch -> ch in '\u4e00'..'\u9fff' } }
-            val isEnOptions = options.all { it.matches(Regex("^[A-Za-z]+$")) }
-
-            val bestIndex = when {
-                detection.word != null && isCnOptions -> {
-                    matcher.match(detection.word, options)
-                }
-                detection.definition != null && isEnOptions -> {
-                    matcher.matchByDefinition(detection.definition, options)
-                }
-                else -> {
-                    // 容错：如果无法判断方向，则默认按 learn 过的信息进行中文匹配
-                    detection.word?.let { matcher.match(it, options) } ?: 0
-                }
-            }
-
-            // 1) 优先通过文本节点精确匹配到可点击区域
-            val targetNode = findOptionNodeForIndex(bestIndex, options, texts)
-            if (targetNode != null) {
-                val (cx, cy) = centerOf(targetNode.bounds)
-                tap(cx, cy)
-                LogManager.i(TAG, "选择题命中 index=$bestIndex 文本='${options[bestIndex]}' at (${cx}, ${cy})")
-            } else {
-                // 2) 退化：按预设行坐标点击
-                val rowY = Regions.SELEC_Y.getOrNull(bestIndex + 1) ?: Regions.SELEC_Y.last()
-                val (fx, fy) = ratioToScreen(Regions.SELEC_X, rowY)
-                tap(fx, fy)
-                LogManager.w(TAG, "未定位到目标节点，按行坐标兜底点击 index=$bestIndex at (${fx}, ${fy})")
-            }
-        } else {
-            LogManager.d(TAG, "学习模式，跳过选择题")
-        }
-
-        clickAndSwipe()
-    }
-    
-    /**
-     * 处理学习页面
-     */
-    private suspend fun handleLearningPage(detection: QuestionTypeDetector.DetectionResult) {
-        val word = detection.word
-        val definition = detection.definition
-        
-        if (word != null && definition != null) {
-            matcher.learn(word, listOf(definition))
-            LogManager.i(TAG, "学习单词: $word -> $definition")
-        }
-        
-        clickAndSwipe()
-    }
-    
-    /**
-     * 处理未知类型（兼容旧逻辑）
-     */
-    private suspend fun handleUnknownType(texts: List<NodeText>) {
-        val englishRegex = Regex("^[A-Za-z]+$")
-        val hasEnglishOnly = texts.any { it.text.matches(englishRegex) } &&
-            texts.none { it.text.any { ch -> ch in '\u4e00'..'\u9fff' } }
-
-        if (hasEnglishOnly) {
-            // 仅有英文单词，推测处于学习卡片未展开状态：点击卡片显示中文释义
-            val (fx, fy) = ratioToScreen(Regions.CLICK.x, Regions.CLICK.y)
-            tap(fx, fy)
-            LogManager.i(TAG, "学习页未展开，点击卡片以显示中文释义")
-            return
-        }
-
-        val wordNode = texts.minByOrNull { distanceTo(Regions.PWORD, it.bounds) }
-        val chinNode = texts.minByOrNull { distanceTo(Regions.PCHIN, it.bounds) }
-
-        if (wordNode != null && chinNode != null && wordNode.text.matches(Regex("[A-Za-z]+"))) {
-            matcher.learn(wordNode.text, listOf(chinNode.text))
-        }
-
-        clickAndSwipe()
+        // TODO: 在这里实现自动处理逻辑
+        // 1. 读取文本节点
+        // 2. 检测题型
+        // 3. 执行相应操作
     }
 
-    /**
-     * 在文本节点中定位第 index 个选项的节点，考虑前缀（A./B./C./D.）与空白差异
-     */
-    private fun findOptionNodeForIndex(index: Int, options: List<String>, texts: List<NodeText>): NodeText? {
-        if (index !in options.indices) return null
-        val target = normalizeOpt(options[index])
-
-        // 先按中文/英文分别策略匹配
-        val candidates = texts.filter { n ->
-            val norm = normalizeOpt(n.text)
-            norm == target || norm.contains(target) || target.contains(norm)
-        }
-        if (candidates.isNotEmpty()) return candidates.minByOrNull { distanceTo(Regions.PSELC, it.bounds) }
-
-        // 如果按文本匹配不到，退化：根据纵向行序点击
-        return null
+    override fun onInterrupt() {
+        LogManager.w(TAG, "服务被中断")
     }
-
-    private fun normalizeOpt(text: String): String {
-        // 去除选项前缀，如 "A. ", "B) " 等
-        val noPrefix = text.replace(Regex("^[A-Da-d][\\.．、\"\\)\\)]\\s*"), "")
-        return noPrefix
-            .replace("\u00A0", " ") // nbsp
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-    
-    /**
-     * 点击并滑动到下一题
-     */
-    private suspend fun clickAndSwipe() {
-        val (cx, cy) = ratioToScreen(Regions.CLICK.x, Regions.CLICK.y)
-        tap(cx, cy)
-        
-        kotlinx.coroutines.delay(300)
-        val (sx, sy1) = ratioToScreen(0.5060f, 0.8257f)
-        val (_, sy2) = ratioToScreen(0.5060f, 0.2772f)
-        swipe(sx, sy1, sx, sy2)
-    }
-
-    override fun onInterrupt() {}
     
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
         instance = null
-        LogManager.i(TAG, "无障碍服务已断开")
-    }
-
-    private fun tap(x: Float, y: Float) {
-        val path = Path().apply { moveTo(x, y) }
-        // 保持一个极短的点击以触发单次按键
-        val stroke = GestureDescription.StrokeDescription(path, 0, 20)
-        dispatchGesture(
-            GestureDescription.Builder().addStroke(stroke).build(),
-            null,
-            null
-        )
-    }
-
-    /**
-     * 带回调的点击，挂起直到系统完成手势（防止快速连续点击导致键盘重复上屏）
-     * 根据 Android Accessibility 最佳实践：短促点击，长延迟
-     */
-    private suspend fun tapAwait(x: Float, y: Float) {
-        // 创建静态的单点路径（无抖动）
-        val path = Path().apply { moveTo(x, y) }
-        
-        // 使用短促的手势持续时间（30ms），避免被输入法误判为长按
-        // 参考文档：手势持续时间过长会导致输入法重复处理
-        val stroke = GestureDescription.StrokeDescription(path, 0, 30)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        
-        val startTime = System.currentTimeMillis()
-        
-        return suspendCancellableCoroutine { cont ->
-            dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    super.onCompleted(gestureDescription)
-                    val duration = System.currentTimeMillis() - startTime
-                    if (!cont.isCompleted) {
-                        LogManager.d(TAG, "✓ 手势完成: ($x, $y), 耗时: ${duration}ms")
-                        cont.resume(Unit)
-                    } else {
-                        LogManager.w(TAG, "⚠️ 手势回调重复: ($x, $y)")
-                    }
-                }
-
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    super.onCancelled(gestureDescription)
-                    val duration = System.currentTimeMillis() - startTime
-                    if (!cont.isCompleted) {
-                        LogManager.w(TAG, "✗ 手势取消: ($x, $y), 耗时: ${duration}ms")
-                        cont.resume(Unit)
-                    }
-                }
-            }, null)
-        }
-    }
-
-    private fun swipe(x1: Float, y1: Float, x2: Float, y2: Float) {
-        val path = Path().apply {
-            moveTo(x1, y1)
-            lineTo(x2, y2)
-        }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 300)
-        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
-    }
-
-    /**
-     * 直接向当前输入框写入文本（优先使用，无需坐标敲击）。
-     * 返回是否写入成功。
-     */
-    fun setTextOnInput(text: String): Boolean {
-        LogManager.d(TAG, "尝试写入文本到输入框: '$text'")
-        val root = rootInActiveWindow ?: return false
-
-        // 1) 优先取当前焦点输入框
-        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (focused != null) {
-            LogManager.d(TAG, "找到焦点输入框")
-            val ok = performSetText(focused, text)
-            if (ok) {
-                LogManager.i(TAG, "✓ 通过焦点输入框成功写入文本")
-                return true
-            }
-        }
-
-        // 2) 按区域和可编辑性兜底查找
-        val fallback = findEditableNodeNearInput(root)
-        if (fallback != null) {
-            LogManager.d(TAG, "找到可编辑节点（区域匹配）")
-            val ok = performSetText(fallback, text)
-            if (ok) {
-                LogManager.i(TAG, "✓ 通过区域匹配成功写入文本")
-                return true
-            }
-        }
-
-        // 3) 终极备选：剪贴板+粘贴
-        LogManager.w(TAG, "ACTION_SET_TEXT 失败，尝试剪贴板粘贴")
-        return tryClipboardPaste(text)
-    }
-
-    private fun performSetText(node: AccessibilityNodeInfo, text: String): Boolean {
-        val args = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-        }
-        val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-        LogManager.d(TAG, "performAction(ACTION_SET_TEXT) = $result")
-        return result
-    }
-
-    /**
-     * 通过剪贴板粘贴文本（终极备选）
-     */
-    private fun tryClipboardPaste(text: String): Boolean {
-        return try {
-            // 将文本放入剪贴板
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            if (clipboard == null) {
-                LogManager.e(TAG, "无法获取剪贴板服务")
-                return false
-            }
-            
-            val clip = ClipData.newPlainText("autoswapeng", text)
-            clipboard.setPrimaryClip(clip)
-            LogManager.d(TAG, "文本已放入剪贴板")
-            
-            // 查找输入框并执行粘贴
-            val root = rootInActiveWindow ?: return false
-            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?: findEditableNodeNearInput(root)
-            
-            if (focused != null) {
-                // 先清空（如果有内容）
-                performSetText(focused, "")
-                Thread.sleep(50)
-                
-                // 执行粘贴
-                val pasteOk = focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                LogManager.d(TAG, "performAction(ACTION_PASTE) = $pasteOk")
-                
-                if (pasteOk) {
-                    LogManager.i(TAG, "✓ 通过剪贴板粘贴成功写入文本")
-                    return true
-                }
-            }
-            
-            LogManager.w(TAG, "找不到可粘贴的输入框节点")
-            false
-        } catch (e: Exception) {
-            LogManager.e(TAG, "剪贴板粘贴失败: ${e.message}")
-            false
-        }
-    }
-
-    private fun findEditableNodeNearInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val dm = resources.displayMetrics
-        val region = com.autoswapeng.app.ocr.MiniProgramRegions.Spelling.INPUT_AREA
-            .toPixelRect(dm.widthPixels, dm.heightPixels)
-
-        val q: ArrayDeque<AccessibilityNodeInfo> = ArrayDeque()
-        q.add(root)
-        val bounds = android.graphics.Rect()
-        var found: AccessibilityNodeInfo? = null
-        
-        while (q.isNotEmpty()) {
-            val n = q.removeFirst()
-            n.getBoundsInScreen(bounds)
-            val className = n.className?.toString() ?: ""
-            val editable = (n.isEditable) || className.contains("EditText", true)
-            if (editable && android.graphics.Rect.intersects(bounds, region)) {
-                found = n
-                LogManager.d(TAG, "找到可编辑节点: class=${className}, editable=${n.isEditable}, bounds=$bounds")
-                break
-            }
-            for (i in 0 until n.childCount) n.getChild(i)?.let(q::add)
-        }
-        
-        if (found == null) {
-            LogManager.w(TAG, "未找到可编辑节点（区域: $region）")
-        }
-        return found
-    }
-
-    private fun ratioToScreen(rx: Float, ry: Float): Pair<Float, Float> {
-        val dm = resources.displayMetrics
-        return dm.widthPixels * rx to dm.heightPixels * ry
-    }
-
-    private fun distanceTo(r: Regions.RectF, b: Rect): Float {
-        val dm = resources.displayMetrics
-        val cx = b.exactCenterX() / dm.widthPixels
-        val cy = b.exactCenterY() / dm.heightPixels
-        val rx = when {
-            cx < r.left -> r.left - cx
-            cx > r.right -> cx - r.right
-            else -> 0f
-        }
-        val ry = when {
-            cy < r.top -> r.top - cy
-            cy > r.bottom -> cy - r.bottom
-            else -> 0f
-        }
-        return rx * rx + ry * ry
+        LogManager.i(TAG, "✗ 无障碍服务已断开")
     }
     
     /**
@@ -791,19 +343,6 @@ class AppAccessibilityService : AccessibilityService() {
                 return
             }
             
-            // 步骤6：初始化拼写处理器
-            LogManager.d(TAG, "步骤6: 初始化拼写处理器")
-            screenCaptureHelper?.let { helper ->
-                spellingHandler = SpellingHandler(
-                    screenCapture = helper,
-                    tap = { x, y -> tapAwait(x.toFloat(), y.toFloat()) },
-                    onProgress = { message ->
-                        LogManager.i(TAG, "拼写进度: $message")
-                    }
-                )
-                LogManager.i(TAG, "✓ 拼写处理器创建成功")
-            }
-            
             LogManager.i(TAG, "========== ✓ 屏幕截图功能初始化完成 ==========")
             LogManager.i(TAG, "OCR 状态: isReady = $isReady")
         } catch (e: Exception) {
@@ -829,10 +368,164 @@ class AppAccessibilityService : AccessibilityService() {
             appendLine("前台服务: ${if (isForegroundServiceRunning) "✓" else "✗"}")
             appendLine("ScreenCaptureHelper: ${if (screenCaptureHelper != null) "✓" else "✗"}")
             appendLine("OCR就绪: ${if (screenCaptureHelper?.isInitialized() == true) "✓" else "✗"}")
-            appendLine("拼写处理器: ${if (spellingHandler != null) "✓" else "✗"}")
+        }
+    }
+
+    /**
+     * 对指定坐标执行一次轻点手势（挂起直到完成/失败）
+     */
+    suspend fun tapSuspending(x: Int, y: Int) {
+        try {
+            val path = Path().apply { moveTo(x.toFloat(), y.toFloat()); lineTo(x + 1f, y + 1f) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
+                .build()
+            suspendCancellableCoroutine { cont ->
+                dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        cont.resume(Unit)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        cont.resume(Unit)
+                    }
+                }, null)
+            }
+        } catch (e: Exception) {
+            LogManager.e(TAG, "tap 失败: ${e.message}")
         }
     }
     
+    /**
+     * 执行上滑手势（用于切换到下一个单词/题目）
+     */
+    suspend fun swipeUpGesture() {
+        try {
+            val screenWidth = screenCaptureHelper?.screenWidth ?: return
+            val screenHeight = screenCaptureHelper?.screenHeight ?: return
+            
+            // 从屏幕中下方向上滑动
+            val startX = screenWidth / 2f
+            val startY = screenHeight * 0.7f
+            val endY = screenHeight * 0.3f
+            
+            val path = Path().apply {
+                moveTo(startX, startY)
+                lineTo(startX, endY)
+            }
+            
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 300))  // 300ms滑动
+                .build()
+                
+            suspendCancellableCoroutine { cont ->
+                dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        LogManager.d(TAG, "上滑手势完成")
+                        cont.resume(Unit)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        LogManager.w(TAG, "上滑手势取消")
+                        cont.resume(Unit)
+                    }
+                }, null)
+            }
+        } catch (e: Exception) {
+            LogManager.e(TAG, "swipeUp 失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 尝试直接向当前可编辑输入框写入文本
+     * 返回是否成功
+     */
+    fun setTextOnInput(text: String): Boolean {
+        return try {
+            val root = rootInActiveWindow ?: return false
+            val candidates = mutableListOf<AccessibilityNodeInfo>()
+            fun dfs(n: AccessibilityNodeInfo?) {
+                if (n == null) return
+                val cls = n.className?.toString() ?: ""
+                if ((cls.contains("EditText") || n.inputType != 0) && n.isEditable) {
+                    candidates.add(n)
+                }
+                for (i in 0 until n.childCount) dfs(n.getChild(i))
+            }
+            dfs(root)
+            val target = candidates.firstOrNull() ?: return false
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            val ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            LogManager.d(TAG, "setTextOnInput(${text.length}) => $ok")
+            ok
+        } catch (e: Exception) {
+            LogManager.e(TAG, "setTextOnInput 失败: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 单次选择题处理：使用循环模式（5学习+5答题）
+     */
+    private suspend fun handleSelectionOnce() {
+        val capture = screenCaptureHelper
+        if (capture?.isInitialized() != true) {
+            LogManager.e(TAG, "OCR未就绪，无法进行选择题")
+            return
+        }
+
+        // 使用循环处理器（5学习+5答题模式）
+        val handler = com.autoswapeng.app.logic.CycleSelectionHandler(
+            screenCapture = capture,
+            tap = { x, y -> tapSuspending(x, y) },
+            swipeUp = { swipeUpGesture() },
+            onProgress = { msg -> LogManager.i(TAG, msg) }
+        )
+        
+        try {
+            LogManager.i(TAG, "========== 开始循环学习模式 ==========")
+            handler.executeFullSession()
+        } catch (e: Exception) {
+            LogManager.e(TAG, "循环学习失败: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+    
+    /**
+     * 回退处理：顺序点击（保留原逻辑）
+     */
+    private suspend fun handleSelectionFallback(capture: ScreenCaptureHelper) {
+        try {
+            LogManager.w(TAG, "使用回退策略：顺序点击")
+            val wordRaw = capture.captureAndRecognize(MiniProgramRegions.Selection.WORD_AREA, "select-word").trim()
+            val word = Regex("[A-Za-z]{2,32}").find(wordRaw)?.value ?: wordRaw
+            
+            val clicks = listOf(
+                MiniProgramRegions.Selection.OPTION_A,
+                MiniProgramRegions.Selection.OPTION_B,
+                MiniProgramRegions.Selection.OPTION_C,
+                MiniProgramRegions.Selection.OPTION_D
+            ).map { it.toPixelPoint(capture.screenWidth, capture.screenHeight) }
+
+            val initialWord = word
+            for ((idx, pt) in clicks.withIndex()) {
+                LogManager.i(TAG, "尝试点击选项 ${'A' + idx}: (${pt.first}, ${pt.second})")
+                tapSuspending(pt.first, pt.second)
+                kotlinx.coroutines.delay(900)
+                val newWordRaw = capture.captureAndRecognize(MiniProgramRegions.Selection.WORD_AREA, "select-word").trim()
+                val newWord = Regex("[A-Za-z]{2,32}").find(newWordRaw)?.value ?: newWordRaw
+                if (!newWord.equals(initialWord, ignoreCase = true) && newWord.isNotEmpty()) {
+                    LogManager.i(TAG, "✓ 题目已变化 -> 选择成功: '$initialWord' -> '$newWord'")
+                    return
+                }
+            }
+
+            val (nx, ny) = MiniProgramRegions.Selection.NEXT_TAP
+                .toPixelPoint(capture.screenWidth, capture.screenHeight)
+            LogManager.w(TAG, "未检测到题目变化，保底点击: ($nx, $ny)")
+            tapSuspending(nx, ny)
+        } catch (e: Exception) {
+            LogManager.e(TAG, "回退处理失败: ${e.message}")
+        }
+    }
 }
-
-

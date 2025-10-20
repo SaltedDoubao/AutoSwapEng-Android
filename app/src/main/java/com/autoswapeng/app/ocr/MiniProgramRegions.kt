@@ -62,7 +62,30 @@ object MiniProgramRegions {
      * 单词选择题型区域（待实现）
      */
     object Selection {
-        // TODO: 等待UI截图后实现
+        // 单词区域（题目英文单词）
+        val WORD_AREA = NormalizedRect(
+            left = 0.1698f,
+            top = 0.3056f,
+            right = 0.9150f,
+            bottom = 0.4053f
+        )
+
+        // 中文选项区域（四个选项整体包围框）
+        val OPTIONS_AREA = NormalizedRect(
+            left = 0.0883f,
+            top = 0.4865f,
+            right = 0.9150f,
+            bottom = 0.8316f
+        )
+
+        // 四个选项的点击位置（A-D）
+        val OPTION_A = NormalizedPoint(0.5060f, 0.5284f)
+        val OPTION_B = NormalizedPoint(0.5060f, 0.5938f)
+        val OPTION_C = NormalizedPoint(0.5060f, 0.6633f)
+        val OPTION_D = NormalizedPoint(0.5060f, 0.7353f)
+
+        // 进入下一题的通用点击位置（保底）
+        val NEXT_TAP = NormalizedPoint(0.5060f, 0.3006f)
     }
     
     /**

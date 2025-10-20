@@ -426,102 +426,76 @@ fun FloatingWindowContent(
 
                         Divider()
                         
-                        // 题型专用按钮
+                        // 题型选择
                         Text(
-                            text = if (isSpellingRunning || isSelectionRunning) "运行状态" else "题型选择",
+                            text = "题型选择",
                             style = MaterialTheme.typography.bodySmall,
                             fontSize = 11.sp,
-                            color = if (isSpellingRunning || isSelectionRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                            color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                         
-                        if (isSpellingRunning) {
-                            // 拼写题运行中显示停止按钮
-                            Button(
-                                onClick = {
-                                    AppAccessibilityService.stopSpelling()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                )
-                            ) {
-                                Text(
-                                    text = "⏹️ 停止拼写",
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else if (isSelectionRunning) {
-                            // 选择题运行中显示停止按钮
-                            Button(
-                                onClick = {
-                                    AppAccessibilityService.stopSelection()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                )
-                            ) {
-                                Text(
-                                    text = "⏹️ 停止选择",
-                                    fontSize = 13.sp
-                                )
-                            }
-                        } else {
-                            // 空闲时显示题型按钮
-                            // 拼写题按钮
-                            Button(
-                                onClick = {
-                                    isExpanded = false  // 立即折叠悬浮窗，避免遮挡
-                                    AppAccessibilityService.startSpelling()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = isServiceRunning && hasOcrPermission,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
-                            ) {
-                                Text(
-                                    text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "✍️ 拼写",
-                                    fontSize = 13.sp
-                                )
-                            }
-                            
-                            // 选择题按钮
-                            Button(
-                                onClick = {
-                                    isExpanded = false  // 立即折叠悬浮窗
+                        // TODO: 题型按钮功能待实现
+                        
+                        // 拼写题按钮
+                        Button(
+                            onClick = {
+                                isExpanded = false
+                                // 预留：后续实现
+                                com.autoswapeng.app.log.LogManager.w("FloatingWindow", "拼写题功能待实现")
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = isServiceRunning && hasOcrPermission,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(
+                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "✍️ 拼写（待实现）",
+                                fontSize = 13.sp
+                            )
+                        }
+                        
+                        // 选择题按钮
+                        Button(
+                            onClick = {
+                                isExpanded = false
+                                if (!isSelectionRunning) {
                                     AppAccessibilityService.startSelection()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = isServiceRunning && hasOcrPermission,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondary
-                                )
-                            ) {
-                                Text(
-                                    text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "✅ 选择",
-                                    fontSize = 13.sp
-                                )
-                            }
-                            
-                            // 听力题按钮
-                            Button(
-                                onClick = {
-                                    isExpanded = false  // 立即折叠悬浮窗
-                                    AppAccessibilityService.startListening()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = isServiceRunning && hasOcrPermission,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.tertiary
-                                )
-                            ) {
-                                Text(
-                                    text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "🎧 听力",
-                                    fontSize = 13.sp
-                                )
-                            }
+                                } else {
+                                    AppAccessibilityService.stopSelection()
+                                }
+                                isSelectionRunning = AppAccessibilityService.isSelectionRunning()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = isServiceRunning && hasOcrPermission,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text(
+                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else if (!isSelectionRunning) "📚 开始学习" else "⏹️ 停止学习",
+                                fontSize = 13.sp
+                            )
+                        }
+                        
+                        // 听力题按钮
+                        Button(
+                            onClick = {
+                                isExpanded = false
+                                // TODO: 实现听力题功能
+                                com.autoswapeng.app.log.LogManager.w("FloatingWindow", "听力题功能待实现")
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = isServiceRunning && hasOcrPermission,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Text(
+                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "🎧 听力（待实现）",
+                                fontSize = 13.sp
+                            )
                         }
 
                         Divider()
