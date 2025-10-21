@@ -465,7 +465,7 @@ class AppAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 单次选择题处理：使用循环模式（5学习+5答题）
+     * 单次选择题处理：使用基于页面状态的智能处理器
      */
     private suspend fun handleSelectionOnce() {
         val capture = screenCaptureHelper
@@ -474,8 +474,8 @@ class AppAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 使用循环处理器（5学习+5答题模式）
-        val handler = com.autoswapeng.app.logic.CycleSelectionHandler(
+        // 使用基于页面状态的处理器（智能识别+动态响应）
+        val handler = com.autoswapeng.app.logic.PageBasedSelectionHandler(
             screenCapture = capture,
             tap = { x, y -> tapSuspending(x, y) },
             swipeUp = { swipeUpGesture() },
@@ -483,10 +483,10 @@ class AppAccessibilityService : AccessibilityService() {
         )
         
         try {
-            LogManager.i(TAG, "========== 开始循环学习模式 ==========")
-            handler.executeFullSession()
+            LogManager.i(TAG, "========== 开始智能学习模式 ==========")
+            handler.executeAutoFlow()
         } catch (e: Exception) {
-            LogManager.e(TAG, "循环学习失败: ${e.message}")
+            LogManager.e(TAG, "智能学习失败: ${e.message}")
             e.printStackTrace()
         }
     }

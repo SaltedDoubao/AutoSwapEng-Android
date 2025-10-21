@@ -253,43 +253,13 @@ class CycleSelectionHandler(
                 "quiz-options"
             )
             
-            // 解析文本行
-            val allLines = optionsText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
-            
-            // 解析选项（A-D开头的行）
-            val options = mutableListOf<String>()
-            for (line in allLines) {
-                when {
-                    line.startsWith("A.") -> {
-                        if (options.size == 0) options.add(line.substring(2).trim())
-                    }
-                    line.startsWith("B.") -> {
-                        if (options.size == 1) options.add(line.substring(2).trim())
-                    }
-                    line.startsWith("C.") -> {
-                        if (options.size == 2) options.add(line.substring(2).trim())
-                    }
-                    line.startsWith("D.") -> {
-                        if (options.size == 3) options.add(line.substring(2).trim())
-                    }
-                }
-            }
-            
-            // 如果没找到标准格式，尝试按位置分割
-            if (options.size < 4) {
-                val chineseTexts = allLines.filter { line ->
-                    line.any { c -> c in '\u4e00'..'\u9fff' } 
-                }.take(4)
-                
-                if (chineseTexts.size >= 4) {
-                    return QuizData(word, chineseTexts)
-                }
-            }
+            // 使用改进的选项解析逻辑
+            val options = parseOptions(optionsText)
             
             return if (options.size >= 4) {
                 QuizData(word, options)
             } else {
-                LogManager.w(TAG, "选项不足4个: ${options.size}")
+                LogManager.w(TAG, "选项不足4个: ${options.size}, OCR文本: $optionsText")
                 null
             }
             
@@ -385,6 +355,77 @@ class CycleSelectionHandler(
         val randomIndex = (0..3).random()
         LogManager.w(TAG, "随机选择: 选项 ${'A' + randomIndex}")
         clickOption(randomIndex)
+    }
+    
+    /**
+     * 解析选项文本
+     * 支持多种格式：
+     * 1. 多行格式：每行一个选项
+     * 2. 单行格式：A. xxx B. xxx C. xxx D. xxx
+     * 3. 混合格式：部分选项在同一行
+     */
+    private fun parseOptions(text: String): List<String> {
+        // 方法1: 使用正则表达式提取 A. B. C. D. 选项
+        val optionPattern = Regex("[ABCD]\\.(.*?)(?=[ABCD]\\.|$)")
+        val matches = optionPattern.findAll(text)
+        val extractedOptions = mutableMapOf<Char, String>()
+        
+        for (match in matches) {
+            val fullText = match.value.trim()
+            if (fullText.isNotEmpty()) {
+                val label = fullText[0]  // A, B, C, or D
+                val content = fullText.substring(2).trim()  // 去掉 "X." 
+                if (content.isNotEmpty() && content.any { it in '\u4e00'..'\u9fff' }) {
+                    extractedOptions[label] = content
+                }
+            }
+        }
+        
+        // 按 A B C D 顺序构建选项列表
+        val orderedOptions = mutableListOf<String>()
+        for (label in listOf('A', 'B', 'C', 'D')) {
+            extractedOptions[label]?.let { orderedOptions.add(it) }
+        }
+        
+        if (orderedOptions.size >= 4) {
+            LogManager.d(TAG, "正则提取到 ${orderedOptions.size} 个选项")
+            return orderedOptions
+        }
+        
+        // 方法2: 回退到按行分割
+        val lines = text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        val lineOptions = mutableListOf<String>()
+        
+        for (line in lines) {
+            when {
+                line.startsWith("A.") && lineOptions.size == 0 -> 
+                    lineOptions.add(line.substring(2).trim())
+                line.startsWith("B.") && lineOptions.size == 1 -> 
+                    lineOptions.add(line.substring(2).trim())
+                line.startsWith("C.") && lineOptions.size == 2 -> 
+                    lineOptions.add(line.substring(2).trim())
+                line.startsWith("D.") && lineOptions.size == 3 -> 
+                    lineOptions.add(line.substring(2).trim())
+            }
+        }
+        
+        if (lineOptions.size >= 4) {
+            LogManager.d(TAG, "按行提取到 ${lineOptions.size} 个选项")
+            return lineOptions
+        }
+        
+        // 方法3: 最后的回退 - 提取所有包含中文的文本片段
+        val chineseTexts = lines.filter { line ->
+            line.any { c -> c in '\u4e00'..'\u9fff' } && line.length >= 3
+        }.take(4)
+        
+        if (chineseTexts.size >= 4) {
+            LogManager.d(TAG, "中文文本提取到 ${chineseTexts.size} 个选项")
+            return chineseTexts
+        }
+        
+        LogManager.w(TAG, "所有方法都未能提取到足够选项，OCR文本: $text")
+        return orderedOptions.ifEmpty { lineOptions.ifEmpty { chineseTexts } }
     }
     
     /**
