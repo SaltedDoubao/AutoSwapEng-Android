@@ -40,6 +40,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.autoswapeng.app.accessibility.AppAccessibilityService
+import com.autoswapeng.app.utils.EdgeToEdgeUtils
 import kotlin.math.roundToInt
 
 class FloatingWindowService : Service(), 
@@ -73,6 +74,10 @@ class FloatingWindowService : Service(),
         val displayMetrics = resources.displayMetrics
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
+        
+        // 获取安全区域信息（避开刘海/挖孔）
+        // 注意：Service不是Activity，这里使用默认值
+        val safeInsets = EdgeToEdgeUtils.SafeInsets()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -88,7 +93,9 @@ class FloatingWindowService : Service(),
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = screenWidth - 100  // 默认在右侧
-            y = screenHeight / 3   // 屏幕上1/3位置
+            // 避开顶部刘海/挖孔区域
+            val topSafeArea = maxOf(safeInsets.top, 100)
+            y = topSafeArea + screenHeight / 6
         }
 
         floatingView = ComposeView(this).apply {
@@ -104,16 +111,18 @@ class FloatingWindowService : Service(),
                         val newX = params.x + offsetX.roundToInt()
                         val newY = params.y + offsetY.roundToInt()
                         
-                        // 限制在屏幕范围内，留出悬浮球的空间（56dp）
-                        val fabSize = (56 * displayMetrics.density).toInt()
+                        // 限制在屏幕范围内，留出悬浮球的空间（48dp），并避开刘海区域
+                        val fabSize = (48 * displayMetrics.density).toInt()
+                        val topSafeArea = maxOf(safeInsets.top, 50)
+                        val bottomSafeArea = maxOf(safeInsets.bottom, 0)
                         params.x = newX.coerceIn(-fabSize / 2, screenWidth - fabSize / 2)
-                        params.y = newY.coerceIn(0, screenHeight - fabSize * 2)
+                        params.y = newY.coerceIn(topSafeArea, screenHeight - fabSize * 2 - bottomSafeArea)
                         
                         windowManager?.updateViewLayout(this, params)
                     },
                     onMoveEnd = { 
                         // 松手后自动贴边
-                        val fabSize = (56 * displayMetrics.density).toInt()
+                        val fabSize = (48 * displayMetrics.density).toInt()
                         val centerX = params.x + fabSize / 2
                         
                         // 判断靠近哪一边
@@ -242,7 +251,8 @@ fun FloatingWindowContent(
         if (expanded) 12.dp else 6.dp  // 展开时增加阴影
     }
 
-    Box(
+    Column(
+        horizontalAlignment = Alignment.End,
         modifier = Modifier.pointerInput(Unit) {
             detectDragGestures(
                 onDragStart = {
@@ -331,7 +341,7 @@ fun FloatingWindowContent(
                             fontSize = 11.sp
                         )
 
-                        Divider()
+                        HorizontalDivider()
 
                         // 启用/禁用开关
                         Row(
@@ -424,7 +434,7 @@ fun FloatingWindowContent(
                             }
                         }
 
-                        Divider()
+                        HorizontalDivider()
                         
                         // 题型选择
                         Text(
@@ -498,7 +508,7 @@ fun FloatingWindowContent(
                             )
                         }
 
-                        Divider()
+                        HorizontalDivider()
 
                         // Debug 工具
                         Row(
@@ -548,7 +558,7 @@ fun FloatingWindowContent(
                 }
             }
 
-            // 主按钮（FAB）- 优化的动画效果
+            // 主按钮（FAB）- 更小尺寸48dp
             FloatingActionButton(
                 onClick = {
                     if (!isDragging) {
@@ -556,7 +566,7 @@ fun FloatingWindowContent(
                     }
                 },
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(48.dp)
                     .graphicsLayer {
                         scaleX = fabScale
                         scaleY = fabScale
@@ -581,7 +591,7 @@ fun FloatingWindowContent(
                     // 使用旋转动画的图标（+ 旋转45度变成 ×）
                     Text(
                         text = "+",
-                        fontSize = 28.sp,
+                        fontSize = 24.sp,
                         color = if (isServiceEnabled && isServiceRunning)
                             MaterialTheme.colorScheme.onPrimary
                         else
