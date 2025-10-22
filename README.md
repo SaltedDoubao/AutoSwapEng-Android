@@ -1,6 +1,6 @@
 # AutoSwapEng for Android
 
-思路来源于 [Khimowski/AutoSwapEng](https://github.com/Khimowski/AutoSwapEng)
+思路来源于 [ZRedTea/AutoSwapEng](https://github.com/ZRedTea/AutoSwapEng)
 
 - 目标：将桌面 Python 自动化脚本重构为 Android 应用（无障碍 + OCR）
 - 最低支持：Android 8.0 (API 28)
