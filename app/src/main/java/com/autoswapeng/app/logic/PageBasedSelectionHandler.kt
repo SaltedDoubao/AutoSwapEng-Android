@@ -66,6 +66,10 @@ class PageBasedSelectionHandler(
         iterationCount = 0
         
         try {
+            // 首次启动时额外等待，确保小程序页面完全加载
+            LogManager.i(TAG, "等待小程序页面加载...")
+            delay(1500)  // 1.5秒初始等待
+            
             while (iterationCount < MAX_ITERATIONS) {
                 iterationCount++
                 LogManager.i(TAG, "--- 迭代 $iterationCount/$MAX_ITERATIONS ---")
@@ -113,8 +117,14 @@ class PageBasedSelectionHandler(
             val wordAreaText = captureText(MiniProgramRegions.Selection.WORD_AREA, "word-area")
             val optionsAreaText = captureText(MiniProgramRegions.Selection.OPTIONS_AREA, "options-area")
             
-            LogManager.d(TAG, "单词区: $wordAreaText")
-            LogManager.d(TAG, "选项区: $optionsAreaText")
+            LogManager.d(TAG, "单词区: '$wordAreaText' (长度: ${wordAreaText.length})")
+            LogManager.d(TAG, "选项区: '$optionsAreaText' (长度: ${optionsAreaText.length})")
+            
+            // 如果两个区域都为空，可能是截图失败或页面未加载
+            if (wordAreaText.isEmpty() && optionsAreaText.isEmpty()) {
+                LogManager.w(TAG, "⚠️ OCR 两个区域都为空，可能是截图失败或页面未加载")
+                return PageState.UNKNOWN
+            }
             
             // 特征1: 检查是否有"强化"字样（完成页面）
             if (optionsAreaText.contains("强化") && optionsAreaText.contains("继续")) {

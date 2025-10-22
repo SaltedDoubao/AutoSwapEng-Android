@@ -373,35 +373,80 @@ class AppAccessibilityService : AccessibilityService() {
 
     /**
      * 对指定坐标执行一次轻点手势（挂起直到完成/失败）
+     * 
+     * 改进点：
+     * 1. 使用单点路径（避免微移动导致的拖动识别）
+     * 2. 增加手势持续时间到 80ms（更接近真实点击，避免被识别为多次触摸）
+     * 3. 添加防抖延迟（确保UI完全响应，防止重复触发）
+     * 4. 添加详细日志（追踪每次点击的完整生命周期）
+     * 5. 检查手势分发状态（确保手势被正确提交）
      */
     suspend fun tapSuspending(x: Int, y: Int) {
+        val tapId = System.currentTimeMillis() % 10000  // 生成简短ID用于追踪同一次点击
+        
         try {
-            val path = Path().apply { moveTo(x.toFloat(), y.toFloat()); lineTo(x + 1f, y + 1f) }
+            LogManager.d(TAG, "[$tapId] 开始点击 ($x, $y)")
+            
+            // 使用单点路径，避免被识别为拖动
+            val path = Path().apply { 
+                moveTo(x.toFloat(), y.toFloat())
+                // 不添加 lineTo，保持单点击
+            }
+            
             val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 80))  // 80ms 更接近真实点击
                 .build()
-            suspendCancellableCoroutine { cont ->
-                dispatchGesture(gesture, object : GestureResultCallback() {
+            
+            // 等待手势完成
+            val gestureCompleted = suspendCancellableCoroutine { cont ->
+                val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) {
-                        cont.resume(Unit)
+                        LogManager.d(TAG, "[$tapId] 手势已完成")
+                        cont.resume(true)
                     }
                     override fun onCancelled(gestureDescription: GestureDescription?) {
-                        cont.resume(Unit)
+                        LogManager.w(TAG, "[$tapId] 手势被取消")
+                        cont.resume(false)
                     }
                 }, null)
+                
+                if (!dispatched) {
+                    LogManager.e(TAG, "[$tapId] 手势分发失败")
+                    cont.resume(false)
+                }
             }
+            
+            if (gestureCompleted) {
+                // 关键修复：等待UI响应完成
+                // 这个延迟确保点击事件被目标应用完全处理，防止重复触发
+                kotlinx.coroutines.delay(50)  // 50ms 防抖延迟
+                LogManager.d(TAG, "[$tapId] ✓ 点击完成")
+            } else {
+                LogManager.w(TAG, "[$tapId] ✗ 点击未成功")
+            }
+            
         } catch (e: Exception) {
-            LogManager.e(TAG, "tap 失败: ${e.message}")
+            LogManager.e(TAG, "[$tapId] tap 失败: ${e.message}")
+            e.printStackTrace()
         }
     }
     
     /**
      * 执行上滑手势（用于切换到下一个单词/题目）
+     * 
+     * 改进点：
+     * 1. 添加手势追踪ID
+     * 2. 检查分发状态
+     * 3. 添加防抖延迟
      */
     suspend fun swipeUpGesture() {
+        val swipeId = System.currentTimeMillis() % 10000
+        
         try {
             val screenWidth = screenCaptureHelper?.screenWidth ?: return
             val screenHeight = screenCaptureHelper?.screenHeight ?: return
+            
+            LogManager.d(TAG, "[$swipeId] 开始上滑手势")
             
             // 从屏幕中下方向上滑动
             val startX = screenWidth / 2f
@@ -417,20 +462,35 @@ class AppAccessibilityService : AccessibilityService() {
                 .addStroke(GestureDescription.StrokeDescription(path, 0, 300))  // 300ms滑动
                 .build()
                 
-            suspendCancellableCoroutine { cont ->
-                dispatchGesture(gesture, object : GestureResultCallback() {
+            val gestureCompleted = suspendCancellableCoroutine { cont ->
+                val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) {
-                        LogManager.d(TAG, "上滑手势完成")
-                        cont.resume(Unit)
+                        LogManager.d(TAG, "[$swipeId] 上滑手势已完成")
+                        cont.resume(true)
                     }
                     override fun onCancelled(gestureDescription: GestureDescription?) {
-                        LogManager.w(TAG, "上滑手势取消")
-                        cont.resume(Unit)
+                        LogManager.w(TAG, "[$swipeId] 上滑手势被取消")
+                        cont.resume(false)
                     }
                 }, null)
+                
+                if (!dispatched) {
+                    LogManager.e(TAG, "[$swipeId] 上滑手势分发失败")
+                    cont.resume(false)
+                }
             }
+            
+            if (gestureCompleted) {
+                // 等待滑动动画完成
+                kotlinx.coroutines.delay(100)  // 滑动需要更长的稳定时间
+                LogManager.d(TAG, "[$swipeId] ✓ 上滑完成")
+            } else {
+                LogManager.w(TAG, "[$swipeId] ✗ 上滑未成功")
+            }
+            
         } catch (e: Exception) {
-            LogManager.e(TAG, "swipeUp 失败: ${e.message}")
+            LogManager.e(TAG, "[$swipeId] swipeUp 失败: ${e.message}")
+            e.printStackTrace()
         }
     }
 

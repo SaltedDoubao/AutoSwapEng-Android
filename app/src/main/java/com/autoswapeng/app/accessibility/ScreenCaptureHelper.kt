@@ -44,6 +44,10 @@ class ScreenCaptureHelper(private val context: Context) {
         private set
     private var screenDensity: Int = 0
     
+    // 保存原始物理尺寸（用于 ImageReader/Bitmap 操作）
+    private var rawScreenWidth: Int = 0
+    private var rawScreenHeight: Int = 0
+    
     private var debugScreenshotCounter = 0
     
     /**
@@ -81,6 +85,10 @@ class ScreenCaptureHelper(private val context: Context) {
             val rawHeight = metrics.heightPixels
             screenDensity = metrics.densityDpi
             
+            // 保存原始物理尺寸
+            rawScreenWidth = rawWidth
+            rawScreenHeight = rawHeight
+            
             LogManager.i(TAG, "========== 屏幕信息 ==========")
             LogManager.i(TAG, "原始分辨率: ${rawWidth}x${rawHeight}")
             LogManager.i(TAG, "DPI: $screenDensity")
@@ -100,6 +108,8 @@ class ScreenCaptureHelper(private val context: Context) {
                 screenHeight = rawHeight
                 LogManager.i(TAG, "竖屏模式，归一化坐标: ${screenWidth}x${screenHeight}")
             }
+            
+            LogManager.i(TAG, "ImageReader 将使用: ${rawWidth}x${rawHeight}")
             
             LogManager.i(TAG, "屏幕比例: ${String.format("%.2f", screenHeight.toFloat() / screenWidth)}")
             LogManager.i(TAG, "===============================")
@@ -284,12 +294,14 @@ class ScreenCaptureHelper(private val context: Context) {
             val buffer: ByteBuffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
             val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
             
-            // 创建bitmap
+            // 修复：使用原始物理尺寸计算（与 ImageReader 一致）
+            val rowPadding = rowStride - pixelStride * rawScreenWidth
+            
+            // 创建bitmap（使用原始物理尺寸）
             val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
+                rawScreenWidth + rowPadding / pixelStride,
+                rawScreenHeight,
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
@@ -299,7 +311,7 @@ class ScreenCaptureHelper(private val context: Context) {
             return if (rowPadding == 0) {
                 bitmap
             } else {
-                val cropped = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
+                val cropped = Bitmap.createBitmap(bitmap, 0, 0, rawScreenWidth, rawScreenHeight)
                 bitmap.recycle()
                 cropped
             }
