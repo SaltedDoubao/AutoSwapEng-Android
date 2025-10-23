@@ -58,7 +58,3 @@ git checkout android
 .\package.bat release
 # 打包后的文件位于 app/release/
 ```
-
-## 待办
-- 根据收集的节点数据优化翻转外语小程序支持
-- 完整OCR功能
