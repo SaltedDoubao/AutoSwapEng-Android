@@ -20,6 +20,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import com.autoswapeng.app.config.TargetApps
 import com.autoswapeng.app.log.LogManager
@@ -119,20 +121,33 @@ class AppAccessibilityService : AccessibilityService() {
          * TODO: 开始拼写题流程
          */
         fun startSpelling() {
-            LogManager.w(TAG, "拼写题功能待实现")
+            val service = instance ?: run {
+                LogManager.e(TAG, "服务未运行，无法开始拼写题")
+                return
+            }
+            if (service.spellingJob?.isActive == true) {
+                LogManager.w(TAG, "拼写题任务已在运行中")
+                return
+            }
+            service.spellingJob = service.serviceScope.launch {
+                service.handleSpellingOnce()
+            }
         }
         
         /**
          * TODO: 停止拼写题流程
          */
         fun stopSpelling() {
-            LogManager.w(TAG, "拼写题功能待实现")
+            val service = instance ?: return
+            service.spellingJob?.cancel()
+            service.spellingJob = null
+            LogManager.i(TAG, "拼写题任务已停止")
         }
         
         /**
          * TODO: 检查拼写题是否正在运行
          */
-        fun isSpellingRunning(): Boolean = false
+        fun isSpellingRunning(): Boolean = instance?.spellingJob?.isActive == true
         
         /**
          * TODO: 开始选择题流程
@@ -170,17 +185,41 @@ class AppAccessibilityService : AccessibilityService() {
          * TODO: 开始听力题流程
          */
         fun startListening() {
-            LogManager.w(TAG, "听力题功能待实现")
+            val service = instance ?: run {
+                LogManager.e(TAG, "服务未运行，无法开始听力题")
+                return
+            }
+            if (service.listeningJob?.isActive == true) {
+                LogManager.w(TAG, "听力题任务已在运行中")
+                return
+            }
+            service.listeningJob = service.serviceScope.launch {
+                service.handleListeningOnce()
+            }
         }
+        fun stopListening() {
+            val service = instance ?: return
+            service.listeningJob?.cancel()
+            service.listeningJob = null
+            LogManager.i(TAG, "听力题任务已停止")
+        }
+        fun isListeningRunning(): Boolean = instance?.listeningJob?.isActive == true
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    // 手势互斥锁：确保同一时间只有一个手势在执行，防止重复操作
+    private val gestureMutex = Mutex()
     
     // OCR相关
     private var screenCaptureHelper: ScreenCaptureHelper? = null
     
     // 选择题任务
     private var selectionJob: Job? = null
+    // 拼写题任务
+    private var spellingJob: Job? = null
+    // 听力题任务
+    private var listeningJob: Job? = null
     
     // 前台服务状态
     @Volatile
@@ -373,64 +412,149 @@ class AppAccessibilityService : AccessibilityService() {
 
     /**
      * 对指定坐标执行一次轻点手势（挂起直到完成/失败）
+     * 
+     * 改进点（防止重复操作）：
+     * 1. 使用Mutex锁确保同一时间只有一个手势在执行（关键修复）
+     * 2. 使用严格单点路径（避免微移动导致的拖动识别）
+     * 3. 缩短手势持续时间到30ms（更接近真实点击，避免被识别为长按或多次触摸）
+     * 4. 增加防抖延迟到150ms（确保UI完全响应，防止重复触发）
+     * 5. 添加详细日志（追踪每次点击的完整生命周期）
+     * 6. 检查手势分发状态（确保手势被正确提交）
      */
     suspend fun tapSuspending(x: Int, y: Int) {
-        try {
-            val path = Path().apply { moveTo(x.toFloat(), y.toFloat()); lineTo(x + 1f, y + 1f) }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
-                .build()
-            suspendCancellableCoroutine { cont ->
-                dispatchGesture(gesture, object : GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: GestureDescription?) {
-                        cont.resume(Unit)
+        // 使用互斥锁确保同一时间只有一个手势在执行
+        gestureMutex.withLock {
+            val tapId = System.currentTimeMillis() % 10000  // 生成简短ID用于追踪同一次点击
+            
+            try {
+                LogManager.d(TAG, "[$tapId] 🔒 获取手势锁，开始点击 ($x, $y)")
+                
+                // 使用严格单点路径，避免被识别为拖动
+                val path = Path().apply { 
+                    moveTo(x.toFloat(), y.toFloat())
+                    // 不添加 lineTo，保持单点击
+                }
+                
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 30))  // 30ms 真实点击时长
+                    .build()
+                
+                // 等待手势完成
+                val gestureCompleted = suspendCancellableCoroutine { cont ->
+                    val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            LogManager.d(TAG, "[$tapId] 手势已完成")
+                            cont.resume(true)
+                        }
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            LogManager.w(TAG, "[$tapId] 手势被取消")
+                            cont.resume(false)
+                        }
+                    }, null)
+                    
+                    if (!dispatched) {
+                        LogManager.e(TAG, "[$tapId] 手势分发失败")
+                        cont.resume(false)
                     }
-                    override fun onCancelled(gestureDescription: GestureDescription?) {
-                        cont.resume(Unit)
-                    }
-                }, null)
+                }
+                
+                if (gestureCompleted) {
+                    // 关键修复：等待UI完全响应，防止重复触发
+                    // 真实手指操作后系统有自然的处理时间，模拟需要人为等待
+                    kotlinx.coroutines.delay(150)  // 150ms 防抖延迟
+                    LogManager.d(TAG, "[$tapId] ✓ 点击完成，释放锁")
+                } else {
+                    LogManager.w(TAG, "[$tapId] ✗ 点击未成功")
+                }
+                
+            } catch (e: Exception) {
+                LogManager.e(TAG, "[$tapId] tap 失败: ${e.message}")
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            LogManager.e(TAG, "tap 失败: ${e.message}")
         }
     }
     
     /**
      * 执行上滑手势（用于切换到下一个单词/题目）
+     * 
+     * 改进点（防止重复操作）：
+     * 1. 使用Mutex锁确保手势串行执行
+     * 2. 添加手势追踪ID
+     * 3. 检查分发状态
+     * 4. 增加稳定延迟，等待滑动动画完成
+     * 5. 修复：提前检查screenCapture状态，避免静默失败
      */
     suspend fun swipeUpGesture() {
-        try {
-            val screenWidth = screenCaptureHelper?.screenWidth ?: return
-            val screenHeight = screenCaptureHelper?.screenHeight ?: return
-            
-            // 从屏幕中下方向上滑动
-            val startX = screenWidth / 2f
-            val startY = screenHeight * 0.7f
-            val endY = screenHeight * 0.3f
-            
-            val path = Path().apply {
-                moveTo(startX, startY)
-                lineTo(startX, endY)
-            }
-            
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 300))  // 300ms滑动
-                .build()
+        val swipeId = System.currentTimeMillis() % 10000
+        
+        // 提前检查屏幕捕获状态（在获取锁之前）
+        val capture = screenCaptureHelper
+        if (capture == null) {
+            LogManager.e(TAG, "[$swipeId] ✗ 上滑失败: ScreenCaptureHelper未初始化")
+            return
+        }
+        
+        val screenWidth = capture.screenWidth
+        val screenHeight = capture.screenHeight
+        if (screenWidth <= 0 || screenHeight <= 0) {
+            LogManager.e(TAG, "[$swipeId] ✗ 上滑失败: 屏幕尺寸无效 (${screenWidth}x${screenHeight})")
+            return
+        }
+        
+        // 使用互斥锁确保同一时间只有一个手势在执行
+        gestureMutex.withLock {
+            try {
+                LogManager.d(TAG, "[$swipeId] 🔒 获取手势锁，开始上滑手势")
+                LogManager.d(TAG, "[$swipeId] 屏幕尺寸: ${screenWidth}x${screenHeight}")
                 
-            suspendCancellableCoroutine { cont ->
-                dispatchGesture(gesture, object : GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: GestureDescription?) {
-                        LogManager.d(TAG, "上滑手势完成")
-                        cont.resume(Unit)
+                // 从屏幕中下方向上滑动
+                val startX = screenWidth / 2f
+                val startY = screenHeight * 0.7f
+                val endY = screenHeight * 0.3f
+                
+                LogManager.d(TAG, "[$swipeId] 滑动路径: (${startX.toInt()}, ${startY.toInt()}) -> (${startX.toInt()}, ${endY.toInt()})")
+                
+                val path = Path().apply {
+                    moveTo(startX, startY)
+                    lineTo(startX, endY)
+                }
+                
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 300))  // 300ms滑动
+                    .build()
+                    
+                val gestureCompleted = suspendCancellableCoroutine { cont ->
+                    val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            LogManager.d(TAG, "[$swipeId] 上滑手势已完成")
+                            cont.resume(true)
+                        }
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            LogManager.w(TAG, "[$swipeId] 上滑手势被取消")
+                            cont.resume(false)
+                        }
+                    }, null)
+                    
+                    if (!dispatched) {
+                        LogManager.e(TAG, "[$swipeId] 上滑手势分发失败")
+                        cont.resume(false)
+                    } else {
+                        LogManager.d(TAG, "[$swipeId] 上滑手势已分发")
                     }
-                    override fun onCancelled(gestureDescription: GestureDescription?) {
-                        LogManager.w(TAG, "上滑手势取消")
-                        cont.resume(Unit)
-                    }
-                }, null)
+                }
+                
+                if (gestureCompleted) {
+                    // 等待滑动动画完全完成，防止过早进行下一个操作
+                    kotlinx.coroutines.delay(200)  // 滑动需要更长的稳定时间
+                    LogManager.d(TAG, "[$swipeId] ✓ 上滑完成，释放锁")
+                } else {
+                    LogManager.w(TAG, "[$swipeId] ✗ 上滑未成功")
+                }
+                
+            } catch (e: Exception) {
+                LogManager.e(TAG, "[$swipeId] swipeUp 失败: ${e.message}")
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            LogManager.e(TAG, "swipeUp 失败: ${e.message}")
         }
     }
 
@@ -465,7 +589,7 @@ class AppAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 单次选择题处理：使用循环模式（5学习+5答题）
+     * 单次选择题处理：使用基于页面状态的智能处理器
      */
     private suspend fun handleSelectionOnce() {
         val capture = screenCaptureHelper
@@ -474,8 +598,8 @@ class AppAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 使用循环处理器（5学习+5答题模式）
-        val handler = com.autoswapeng.app.logic.CycleSelectionHandler(
+        // 使用严格按原型实现的处理器
+        val handler = com.autoswapeng.app.logic.PrototypeSelectionHandler(
             screenCapture = capture,
             tap = { x, y -> tapSuspending(x, y) },
             swipeUp = { swipeUpGesture() },
@@ -483,10 +607,56 @@ class AppAccessibilityService : AccessibilityService() {
         )
         
         try {
-            LogManager.i(TAG, "========== 开始循环学习模式 ==========")
-            handler.executeFullSession()
+            LogManager.i(TAG, "========== 开始原型化选择题模式 ==========")
+            handler.run()
         } catch (e: Exception) {
-            LogManager.e(TAG, "循环学习失败: ${e.message}")
+            LogManager.e(TAG, "智能学习失败: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * 单次拼写题处理：按原型的拼写流程
+     */
+    private suspend fun handleSpellingOnce() {
+        val capture = screenCaptureHelper
+        if (capture?.isInitialized() != true) {
+            LogManager.e(TAG, "OCR未就绪，无法进行拼写题")
+            return
+        }
+        try {
+            val handler = com.autoswapeng.app.logic.SpellingHandler(
+                screenCapture = capture,
+                tap = { x, y -> tapSuspending(x, y) },
+                onProgress = { msg -> LogManager.i(TAG, msg) }
+            )
+            LogManager.i(TAG, "========== 开始拼写题模式 ==========")
+            handler.handleSpelling()
+        } catch (e: Exception) {
+            LogManager.e(TAG, "拼写题失败: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * 单次听力题处理：按原型的监听规则
+     */
+    private suspend fun handleListeningOnce() {
+        val capture = screenCaptureHelper
+        if (capture?.isInitialized() != true) {
+            LogManager.e(TAG, "OCR未就绪，无法进行听力题")
+            return
+        }
+        try {
+            val handler = com.autoswapeng.app.logic.ListeningHandler(
+                screenCapture = capture,
+                tap = { x, y -> tapSuspending(x, y) },
+                onProgress = { msg -> LogManager.i(TAG, msg) }
+            )
+            LogManager.i(TAG, "========== 开始听力题模式 ==========")
+            handler.handleListening()
+        } catch (e: Exception) {
+            LogManager.e(TAG, "听力题失败: ${e.message}")
             e.printStackTrace()
         }
     }

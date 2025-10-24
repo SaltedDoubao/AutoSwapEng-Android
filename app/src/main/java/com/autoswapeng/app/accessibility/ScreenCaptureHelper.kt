@@ -44,6 +44,10 @@ class ScreenCaptureHelper(private val context: Context) {
         private set
     private var screenDensity: Int = 0
     
+    // 保存原始物理尺寸（用于 ImageReader/Bitmap 操作）
+    private var rawScreenWidth: Int = 0
+    private var rawScreenHeight: Int = 0
+    
     private var debugScreenshotCounter = 0
     
     /**
@@ -81,6 +85,10 @@ class ScreenCaptureHelper(private val context: Context) {
             val rawHeight = metrics.heightPixels
             screenDensity = metrics.densityDpi
             
+            // 保存原始物理尺寸
+            rawScreenWidth = rawWidth
+            rawScreenHeight = rawHeight
+            
             LogManager.i(TAG, "========== 屏幕信息 ==========")
             LogManager.i(TAG, "原始分辨率: ${rawWidth}x${rawHeight}")
             LogManager.i(TAG, "DPI: $screenDensity")
@@ -100,6 +108,8 @@ class ScreenCaptureHelper(private val context: Context) {
                 screenHeight = rawHeight
                 LogManager.i(TAG, "竖屏模式，归一化坐标: ${screenWidth}x${screenHeight}")
             }
+            
+            LogManager.i(TAG, "ImageReader 将使用: ${rawWidth}x${rawHeight}")
             
             LogManager.i(TAG, "屏幕比例: ${String.format("%.2f", screenHeight.toFloat() / screenWidth)}")
             LogManager.i(TAG, "===============================")
@@ -160,12 +170,23 @@ class ScreenCaptureHelper(private val context: Context) {
                 return@withContext ""
             }
             
-            val bitmap = captureScreen() ?: return@withContext ""
+            val bitmap = captureScreen() ?: run {
+                com.autoswapeng.app.log.LogManager.event(
+                    code = "OCR_CAPTURE_FAIL",
+                    tag = TAG,
+                    message = "无法获取截图",
+                    data = mapOf(
+                        "region" to regionName,
+                        "initialized" to isInitialized()
+                    ),
+                    level = com.autoswapeng.app.log.LogManager.LogEntry.Level.WARN
+                )
+                return@withContext ""
+            }
             
-            // 注意：归一化坐标基于竖屏标准(screenWidth x screenHeight)
-            // 但bitmap可能是横屏(rawWidth x rawHeight)
-            // 需要根据实际bitmap尺寸进行转换
-            val pixelRect = normalizedRegion.toPixelRect(screenWidth, screenHeight)
+            // 注意：归一化坐标应以当前拿到的位图尺寸为准进行换算
+            // 以避免 displayMetrics 与实际截图像素(含系统栏/行距补偿)不一致导致的裁剪偏移
+            val pixelRect = normalizedRegion.toPixelRect(bitmap.width, bitmap.height)
             
             LogManager.d(TAG, "[$regionName] Bitmap: ${bitmap.width}x${bitmap.height}, 区域: (${pixelRect.left},${pixelRect.top})-(${pixelRect.right},${pixelRect.bottom}), 尺寸: ${pixelRect.width()}x${pixelRect.height()}")
             
@@ -181,8 +202,35 @@ class ScreenCaptureHelper(private val context: Context) {
                 saveDebugScreenshot(croppedBitmap, regionName.replace("-", "_").replace("区域", "region"))
             }
             
-            val texts = ocrEngine.recognize(croppedBitmap)
+            // 根据区域名称选择合适的OCR策略
+            val texts = when {
+                regionName.contains("word", ignoreCase = true) -> {
+                    // 单词区域：优先使用英文识别器
+                    ocrEngine.recognize(croppedBitmap, preferChinese = false)
+                }
+                regionName.contains("options", ignoreCase = true) || 
+                regionName.contains("选项", ignoreCase = true) -> {
+                    // 选项区域：使用混合识别（包含中英文）
+                    ocrEngine.recognizeMixed(croppedBitmap)
+                }
+                else -> {
+                    // 其他区域：默认使用混合识别
+                    ocrEngine.recognizeMixed(croppedBitmap)
+                }
+            }
             val result = texts.joinToString(" ")
+            com.autoswapeng.app.log.LogManager.event(
+                code = "OCR_CAPTURE",
+                tag = TAG,
+                message = "OCR完成",
+                data = mapOf(
+                    "region" to regionName,
+                    "w" to pixelRect.width(),
+                    "h" to pixelRect.height(),
+                    "len" to result.length
+                ),
+                level = com.autoswapeng.app.log.LogManager.LogEntry.Level.DEBUG
+            )
             
             bitmap.recycle()
             croppedBitmap.recycle()
@@ -191,6 +239,13 @@ class ScreenCaptureHelper(private val context: Context) {
             result
         } catch (e: Exception) {
             LogManager.e(TAG, "截图识别失败: ${e.message}")
+            com.autoswapeng.app.log.LogManager.event(
+                code = "OCR_ERROR",
+                tag = TAG,
+                message = e.message ?: "OCR异常",
+                data = mapOf("region" to regionName),
+                level = com.autoswapeng.app.log.LogManager.LogEntry.Level.ERROR
+            )
             e.printStackTrace()
             ""
         }
@@ -284,12 +339,14 @@ class ScreenCaptureHelper(private val context: Context) {
             val buffer: ByteBuffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
             val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
             
-            // 创建bitmap
+            // 修复：使用原始物理尺寸计算（与 ImageReader 一致）
+            val rowPadding = rowStride - pixelStride * rawScreenWidth
+            
+            // 创建bitmap（使用原始物理尺寸）
             val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
+                rawScreenWidth + rowPadding / pixelStride,
+                rawScreenHeight,
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
@@ -299,7 +356,7 @@ class ScreenCaptureHelper(private val context: Context) {
             return if (rowPadding == 0) {
                 bitmap
             } else {
-                val cropped = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
+                val cropped = Bitmap.createBitmap(bitmap, 0, 0, rawScreenWidth, rawScreenHeight)
                 bitmap.recycle()
                 cropped
             }

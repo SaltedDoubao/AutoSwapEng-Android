@@ -10,40 +10,46 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.autoswapeng.app.accessibility.AppAccessibilityService
 import com.autoswapeng.app.log.LogManager
 import com.autoswapeng.app.overlay.FloatingWindowService
+import com.autoswapeng.app.ui.PermissionGuideActivity
+import com.autoswapeng.app.ui.SettingsActivity
 import com.autoswapeng.app.ui.theme.AppTheme
+import com.autoswapeng.app.ui.theme.ThemeManager
+import com.autoswapeng.app.ui.theme.ThemeMode
+import com.autoswapeng.app.ui.theme.rememberThemeMode
+import com.autoswapeng.app.utils.EdgeToEdgeUtils
+import androidx.compose.foundation.isSystemInDarkTheme
 
 class MainActivity : ComponentActivity() {
     
@@ -68,6 +74,8 @@ class MainActivity : ComponentActivity() {
         
         // 初始化日志管理器
         LogManager.initialize(applicationContext)
+        // 初始化主题管理器
+        ThemeManager.initialize(applicationContext)
         LogManager.i("MainActivity", "应用启动")
         LogManager.i("MainActivity", "filesDir: ${applicationContext.filesDir.absolutePath}")
         
@@ -76,8 +84,34 @@ class MainActivity : ComponentActivity() {
         LogManager.i("MainActivity", "屏幕分辨率: ${displayMetrics.widthPixels}x${displayMetrics.heightPixels}")
         LogManager.i("MainActivity", "屏幕DPI: ${displayMetrics.densityDpi}")
         
+        // 检查是否需要显示权限引导（仅在首次启动且引导未完成时）
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val guideCompleted = prefs.getBoolean("permission_guide_completed", false)
+        
+        // 只有在引导未完成时才自动跳转到引导页面
+        // 如果用户已经完成过引导（即使跳过了权限设置），就不再自动跳转
+        if (!guideCompleted) {
+            // 显示权限引导页面
+            startActivity(Intent(this, PermissionGuideActivity::class.java))
+            finish()
+            return
+        }
+        
         setContent {
-            AppTheme {
+            val themeMode = rememberThemeMode()
+            val isSystemDark = isSystemInDarkTheme()
+            val isDarkTheme = when (themeMode) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+                ThemeMode.SYSTEM -> isSystemDark
+            }
+            
+            // 设置Edge-to-Edge
+            LaunchedEffect(isDarkTheme) {
+                EdgeToEdgeUtils.setupEdgeToEdge(this@MainActivity, isDarkTheme)
+            }
+            
+            AppTheme(themeMode = themeMode) {
                 MainScreen(
                     context = this,
                     onOpenAccessibility = {
@@ -85,6 +119,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestScreenCapture = {
                         requestScreenCapturePermission()
+                    },
+                    onOpenSettings = {
+                        startActivity(Intent(this, SettingsActivity::class.java))
                     }
                 )
             }
@@ -108,56 +145,65 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     context: ComponentActivity,
     onOpenAccessibility: () -> Unit,
-    onRequestScreenCapture: () -> Unit
+    onRequestScreenCapture: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        var selectedTab by remember { mutableIntStateOf(0) }
-        
-        Column(modifier = Modifier.fillMaxSize()) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
+    var selectedTab by remember { mutableIntStateOf(0) }
+    
+    Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "AutoSwapEng",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, "设置")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp
+            ) {
+                NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("主页") }
+                    icon = { Icon(Icons.Default.Home, "主页") },
+                    label = { Text("主页") }
                 )
-                Tab(
+                NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("日志") }
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, "日志") },
+                    label = { Text("日志") }
                 )
             }
-            
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
                 0 -> HomeScreen(
+                    context = context,
                     onOpenAccessibility = onOpenAccessibility,
-                    onRequestOverlay = {
-                        if (!Settings.canDrawOverlays(context)) {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
-                        }
-                    },
-                    onStartFloatingWindow = {
-                        if (Settings.canDrawOverlays(context)) {
-                            context.startService(Intent(context, FloatingWindowService::class.java))
-                        } else {
-                            // 如果没有权限，跳转到授权页面
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
-                        }
-                    },
-                    hasOverlayPermission = {
-                        Settings.canDrawOverlays(context)
-                    },
                     onRequestScreenCapture = onRequestScreenCapture
                 )
                 1 -> LogsScreen()
@@ -168,168 +214,473 @@ fun MainScreen(
 
 @Composable
 fun HomeScreen(
+    context: ComponentActivity,
     onOpenAccessibility: () -> Unit,
-    onRequestOverlay: () -> Unit,
-    onStartFloatingWindow: () -> Unit,
-    hasOverlayPermission: () -> Boolean,
     onRequestScreenCapture: () -> Unit
 ) {
     var isServiceRunning by remember { mutableStateOf(AppAccessibilityService.isRunning()) }
     var isAutoEnabled by remember { mutableStateOf(AppAccessibilityService.isEnabled()) }
-    var hasOverlay by remember { mutableStateOf(hasOverlayPermission()) }
+    var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var hasScreenCapture by remember { mutableStateOf(AppAccessibilityService.instance?.isScreenCaptureReady() ?: false) }
     
-    // 定期检查服务状态和权限（降低频率）
+    // 定期检查服务状态和权限
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(2000)  // 2秒检查一次
+            kotlinx.coroutines.delay(2000)
             isServiceRunning = AppAccessibilityService.isRunning()
             isAutoEnabled = AppAccessibilityService.isEnabled()
-            hasOverlay = hasOverlayPermission()
+            hasOverlay = Settings.canDrawOverlays(context)
             hasScreenCapture = AppAccessibilityService.instance?.isScreenCaptureReady() ?: false
         }
     }
+    
+    // 检查是否有缺失的权限
+    val missingPermissions = mutableListOf<String>()
+    if (!isServiceRunning) missingPermissions.add("无障碍服务")
+    if (!hasOverlay) missingPermissions.add("悬浮窗权限")
+    if (!hasScreenCapture) missingPermissions.add("OCR权限")
     
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "AutoSwapEng for Android",
-            style = MaterialTheme.typography.headlineMedium
+        // 权限缺失提示卡片
+        if (missingPermissions.isNotEmpty()) {
+            PermissionWarningCard(
+                missingPermissions = missingPermissions,
+                onSetupPermissions = {
+                    context.startActivity(Intent(context, PermissionGuideActivity::class.java))
+                }
+            )
+        }
+        
+        // 顶部欢迎卡片
+        WelcomeCard(isServiceRunning = isServiceRunning)
+        
+        // 快速操作部分
+        QuickActionsCard(
+            isAutoEnabled = isAutoEnabled,
+            onToggleAuto = { enabled ->
+                AppAccessibilityService.setEnabled(enabled)
+                isAutoEnabled = enabled
+            },
+            isServiceRunning = isServiceRunning
         )
         
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // 服务状态显示
-        Text(
-            text = if (isServiceRunning) "✓ 无障碍服务已连接" else "✗ 无障碍服务未运行",
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (isServiceRunning) 
-                MaterialTheme.colorScheme.primary 
-            else 
-                MaterialTheme.colorScheme.error
+        // 权限状态卡片
+        PermissionsCard(
+            isServiceRunning = isServiceRunning,
+            hasOverlay = hasOverlay,
+            hasScreenCapture = hasScreenCapture,
+            onOpenAccessibility = onOpenAccessibility,
+            onRequestOverlay = {
+                if (!Settings.canDrawOverlays(context)) {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                    context.startActivity(intent)
+                }
+            },
+            onRequestScreenCapture = onRequestScreenCapture,
+            onStartFloatingWindow = {
+                if (Settings.canDrawOverlays(context)) {
+                    context.startService(Intent(context, FloatingWindowService::class.java))
+                } else {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                    context.startActivity(intent)
+                }
+            }
         )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // 自动操作开关
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(8.dp)
-        ) {
-            Text(
-                text = "启用自动操作",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Switch(
-                checked = isAutoEnabled,
-                onCheckedChange = { enabled ->
-                    AppAccessibilityService.setEnabled(enabled)
-                    isAutoEnabled = enabled
-                },
-                enabled = isServiceRunning
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Button(onClick = onOpenAccessibility) {
-            Text("打开无障碍设置")
-        }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // 悬浮窗权限状态
-        Row(
-            modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = if (hasOverlay) "✓" else "✗",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (hasOverlay) 
-                    MaterialTheme.colorScheme.primary 
-                else 
-                    MaterialTheme.colorScheme.error
-            )
-            Text(
-                text = if (hasOverlay) "悬浮窗权限已授予" else "悬浮窗权限未授予",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-        
-        if (!hasOverlay) {
-            Button(onClick = onRequestOverlay) {
-                Text("授权悬浮窗")
-            }
-        } else {
-            Button(onClick = onStartFloatingWindow) {
-                Text("启动悬浮窗")
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // 屏幕录制权限状态（用于OCR识别）
+    }
+}
+
+@Composable
+fun PermissionWarningCard(
+    missingPermissions: List<String>,
+    onSetupPermissions: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
         Column(
-            modifier = Modifier.padding(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = if (hasScreenCapture) "✓" else "✗",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (hasScreenCapture) 
-                        MaterialTheme.colorScheme.primary 
-                    else 
-                        MaterialTheme.colorScheme.error
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(24.dp)
                 )
+                Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = if (hasScreenCapture) "OCR权限已授予" else "OCR权限未授予",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "权限缺失",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    fontWeight = FontWeight.Bold
                 )
             }
             
-            // 显示OCR详细状态（调试用）
-            if (!hasScreenCapture) {
-                val ocrDetails = AppAccessibilityService.instance?.getOcrStatusDetails() ?: "服务未运行"
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Text(
+                text = "以下权限未配置：${missingPermissions.joinToString("、")}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Button(
+                onClick = onSetupPermissions,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Security,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = ocrDetails,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 10.sp,
-                    color = Color.Gray,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 4.dp)
+                    text = "立即配置",
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
-        
-        if (!hasScreenCapture) {
-            Button(onClick = onRequestScreenCapture) {
-                Text("授权OCR识别")
+    }
+}
+
+@Composable
+fun WelcomeCard(isServiceRunning: Boolean) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                        )
+                    )
+                )
+                .padding(24.dp)
+        ) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "👋 欢迎使用",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "专为翻转外语小程序设计的自动化工具",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                StatusChip(
+                    text = if (isServiceRunning) "运行中" else "未运行",
+                    icon = if (isServiceRunning) Icons.Default.CheckCircle else Icons.Default.Close,
+                    isPositive = isServiceRunning
+                )
             }
         }
+    }
+}
+
+@Composable
+fun QuickActionsCard(
+    isAutoEnabled: Boolean,
+    onToggleAuto: (Boolean) -> Unit,
+    isServiceRunning: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Text(
+                text = "快速操作",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // 自动操作开关
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "自动操作",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = if (isServiceRunning) "开启后自动识别并答题" else "请先启用无障碍服务",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Switch(
+                    checked = isAutoEnabled,
+                    onCheckedChange = onToggleAuto,
+                    enabled = isServiceRunning
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PermissionsCard(
+    isServiceRunning: Boolean,
+    hasOverlay: Boolean,
+    hasScreenCapture: Boolean,
+    onOpenAccessibility: () -> Unit,
+    onRequestOverlay: () -> Unit,
+    onRequestScreenCapture: () -> Unit,
+    onStartFloatingWindow: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Text(
+                text = "权限与功能",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // 无障碍服务
+            PermissionItem(
+                icon = Icons.Default.Settings,
+                title = "无障碍服务",
+                description = "自动化操作所需",
+                isGranted = isServiceRunning,
+                buttonText = if (isServiceRunning) "已启用" else "去启用",
+                onButtonClick = onOpenAccessibility,
+                showButton = !isServiceRunning
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // 悬浮窗权限
+            PermissionItem(
+                icon = Icons.Default.OpenWith,
+                title = "悬浮窗权限",
+                description = "显示控制面板",
+                isGranted = hasOverlay,
+                buttonText = if (hasOverlay) "启动悬浮窗" else "去授权",
+                onButtonClick = if (hasOverlay) onStartFloatingWindow else onRequestOverlay,
+                showButton = true
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // OCR识别权限
+            PermissionItem(
+                icon = Icons.Default.RemoveRedEye,
+                title = "OCR识别权限",
+                description = "用于屏幕内容识别",
+                isGranted = hasScreenCapture,
+                buttonText = if (hasScreenCapture) "已授权" else "去授权",
+                onButtonClick = onRequestScreenCapture,
+                showButton = !hasScreenCapture
+            )
+        }
+    }
+}
+
+@Composable
+fun PermissionItem(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    isGranted: Boolean,
+    buttonText: String,
+    onButtonClick: () -> Unit,
+    showButton: Boolean = true
+) {
+    val actualIcon = when(title) {
+        "无障碍服务" -> Icons.Default.Settings
+        "悬浮窗权限" -> Icons.Default.OpenWith
+        "OCR识别权限" -> Icons.Default.RemoveRedEye
+        else -> icon
+    }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isGranted) 
+                        MaterialTheme.colorScheme.tertiaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.errorContainer
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = actualIcon,
+                contentDescription = null,
+                tint = if (isGranted) 
+                    MaterialTheme.colorScheme.onTertiaryContainer 
+                else 
+                    MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
         
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.width(16.dp))
         
-        // 使用说明
-        Text(
-            text = "使用说明：",
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 16.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        
+        if (showButton) {
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            Button(
+                onClick = onButtonClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isGranted) 
+                        MaterialTheme.colorScheme.primaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.primary
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = buttonText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isGranted) 
+                        MaterialTheme.colorScheme.onPrimaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StatusChip(
+    text: String,
+    icon: ImageVector,
+    isPositive: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (isPositive) 
+                    MaterialTheme.colorScheme.tertiaryContainer 
+                else 
+                    MaterialTheme.colorScheme.errorContainer
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isPositive) 
+                MaterialTheme.colorScheme.onTertiaryContainer 
+            else 
+                MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.size(16.dp)
         )
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
-            text = "1. 先开启无障碍服务\n2. 授权悬浮窗权限\n3. 授权OCR识别权限（用于微信小程序）\n4. 启动悬浮窗进行控制\n5. 专门支持翻转外语小程序",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(8.dp)
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isPositive) 
+                MaterialTheme.colorScheme.onTertiaryContainer 
+            else 
+                MaterialTheme.colorScheme.onErrorContainer
         )
     }
 }
@@ -365,20 +716,20 @@ fun LogsScreen() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp),
+                .padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
                 Text(
-                    text = "运行日志 (${logs.size}/${allLogs.size})",
-                    style = MaterialTheme.typography.titleMedium
+                    text = "运行日志",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "D:$debugCount I:$infoCount W:$warnCount E:$errorCount",
+                    text = "${logs.size}/${allLogs.size} 条 · D:$debugCount I:$infoCount W:$warnCount E:$errorCount",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
-                    fontSize = 10.sp
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             
@@ -386,94 +737,67 @@ fun LogsScreen() {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // 过滤按钮
-                Button(
+                FilledTonalButton(
                     onClick = { showFilterMenu = !showFilterMenu },
-                    modifier = Modifier.height(36.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("过滤: ${minLevel.name}", fontSize = 12.sp)
+                    Icon(
+                        Icons.Default.Filter,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(minLevel.name, fontSize = 12.sp)
                 }
                 
-                Button(
+                FilledTonalButton(
                     onClick = { LogManager.clear() },
-                    modifier = Modifier.height(36.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("清空", fontSize = 12.sp)
-                }
-            }
-        }
-        
-        // 日志文件路径显示
-        if (logFilePath != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                SelectionContainer {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text(
-                            text = "日志文件路径（可通过文件管理器访问）：",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = logFilePath,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                        Text(
-                            text = "提示: 日志同时保存在内部和外部存储",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 8.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
         
         // 过滤菜单
-        if (showFilterMenu) {
+        AnimatedVisibility(
+            visible = showFilterMenu,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = 16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                ),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "选择最小日志级别：",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 4.dp)
+                        text = "过滤级别",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(bottom = 12.dp)
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         LogManager.LogEntry.Level.values().forEach { level ->
-                            Button(
+                            FilterChip(
+                                selected = level == minLevel,
                                 onClick = {
                                     LogManager.setMinLevel(level)
                                     showFilterMenu = false
                                 },
-                                modifier = Modifier.height(32.dp),
-                                colors = if (level == minLevel) {
-                                    ButtonDefaults.buttonColors()
-                                } else {
-                                    ButtonDefaults.outlinedButtonColors()
-                                }
-                            ) {
-                                Text(level.name, fontSize = 10.sp)
-                            }
+                                label = { Text(level.name) },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -484,27 +808,42 @@ fun LogsScreen() {
         Card(
             modifier = Modifier.fillMaxSize(),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            shape = RoundedCornerShape(16.dp)
         ) {
             if (logs.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "暂无日志\n请启动无障碍服务并使用应用",
-                        color = Color.Gray,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp)
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.List,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "暂无日志",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "请启动无障碍服务并使用应用",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(8.dp)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(logs) { log ->
                         SelectionContainer {
@@ -520,10 +859,10 @@ fun LogsScreen() {
 @Composable
 fun LogItem(log: LogManager.LogEntry) {
     val textColor = when (log.level) {
-        LogManager.LogEntry.Level.DEBUG -> Color(0xFF808080)
-        LogManager.LogEntry.Level.INFO -> Color(0xFFFFFFFF)
+        LogManager.LogEntry.Level.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        LogManager.LogEntry.Level.INFO -> MaterialTheme.colorScheme.onSurface
         LogManager.LogEntry.Level.WARN -> Color(0xFFFFAA00)
-        LogManager.LogEntry.Level.ERROR -> Color(0xFFFF5555)
+        LogManager.LogEntry.Level.ERROR -> MaterialTheme.colorScheme.error
     }
     
     Text(
@@ -531,8 +870,7 @@ fun LogItem(log: LogManager.LogEntry) {
         color = textColor,
         fontFamily = FontFamily.Monospace,
         fontSize = 11.sp,
+        lineHeight = 16.sp,
         modifier = Modifier.padding(vertical = 2.dp)
     )
 }
-
-

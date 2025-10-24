@@ -123,6 +123,11 @@ class SpellingHandler(
      */
     private suspend fun closeInitialDialog() {
         LogManager.i(TAG, "关闭温馨提示弹窗")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_DIALOG",
+            tag = TAG,
+            message = "关闭弹窗"
+        )
         LogManager.d(TAG, "屏幕尺寸: ${screenCapture.screenWidth}x${screenCapture.screenHeight}")
         
         val (x, y) = MiniProgramRegions.Spelling.INITIAL_DIALOG_CONFIRM.toPixelPoint(
@@ -141,6 +146,12 @@ class SpellingHandler(
         
         // 步骤1：先尝试直接写入错误答案，失败再坐标敲击
         LogManager.d(TAG, "通过点击键盘输入错误答案: $DUMMY_INPUT")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_TRY_WRONG",
+            tag = TAG,
+            message = "输入错误以触发提示",
+            data = mapOf("len" to DUMMY_INPUT.length)
+        )
         // 点击输入框以确保焦点
         run {
             val rect = MiniProgramRegions.Spelling.INPUT_AREA.toPixelRect(
@@ -166,6 +177,11 @@ class SpellingHandler(
         
         // 步骤2：OCR识别提示中的正确答案
         LogManager.d(TAG, "开始OCR识别提示区域（等待画面稳定）")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_OCR_HINT",
+            tag = TAG,
+            message = "开始识别提示"
+        )
         delay(500)  // 额外等待，确保画面完全稳定
         
         // 尝试多个区域查找提示（优先扫描最可能的区域）
@@ -199,14 +215,31 @@ class SpellingHandler(
         if (correctWord.isEmpty() || !isValidEnglishWord(correctWord)) {
             LogManager.w(TAG, "⚠️ 所有区域都无法识别正确答案")
             LogManager.w(TAG, "   请检查调试截图，手动确认提示位置")
+            com.autoswapeng.app.log.LogManager.event(
+                code = "SPELL_HINT_MISS",
+                tag = TAG,
+                message = "未识别到正确答案",
+                level = com.autoswapeng.app.log.LogManager.LogEntry.Level.WARN
+            )
             keyboardTapper.clickEnter()  // 尝试进入下一题
             return
         }
         
         LogManager.i(TAG, "✓ 识别到正确答案: $correctWord")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_HINT_OK",
+            tag = TAG,
+            message = "识别到答案",
+            data = mapOf("word" to correctWord)
+        )
         
         // 步骤3：清空输入（优先直接覆盖为空，失败则少量退格）
         LogManager.d(TAG, "清空输入：优先直接覆盖为空，失败则退格5次")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_CLEAR",
+            tag = TAG,
+            message = "清空输入"
+        )
         val cleared = setTextOnInput?.invoke("") ?: false
         if (!cleared) {
             // 只需清空错误答案（16个a），退格5次足够（错误答案会被小程序自动清除大部分）
@@ -229,6 +262,12 @@ class SpellingHandler(
 
         // 步骤4：输入正确答案（优先直接写入，失败再使用退格预热策略）
         LogManager.d(TAG, "通过点击键盘输入正确答案: $correctWord")
+        com.autoswapeng.app.log.LogManager.event(
+            code = "SPELL_INPUT_OK",
+            tag = TAG,
+            message = "输入正确答案",
+            data = mapOf("len" to correctWord.length)
+        )
         val wrote = setTextOnInput?.invoke(correctWord) ?: false
         if (!wrote) {
             // 退格预热策略：少量退格让输入法稳定，避免与新输入冲突
