@@ -23,6 +23,10 @@ object LogManager {
     private var logWriter: PrintWriter? = null
     private var externalLogFile: File? = null
     private var externalLogWriter: PrintWriter? = null
+
+    // 结构化事件日志（JSONL）
+    private var eventLogFile: File? = null
+    private var eventLogWriter: PrintWriter? = null
     
     data class LogEntry(
         val timestamp: Long,
@@ -69,6 +73,9 @@ object LogManager {
         
         // 2. 初始化外部存储日志（应用专属目录，不需要权限）
         initializeExternalLog(context, timestamp)
+
+        // 3. 初始化事件日志（JSON Lines）
+        initializeEventLog(context, timestamp)
     }
     
     /**
@@ -178,6 +185,31 @@ object LogManager {
             e.printStackTrace()
         }
     }
+
+    /**
+     * 初始化结构化事件日志（JSONL），便于精确反馈与外部分析
+     */
+    private fun initializeEventLog(context: Context, timestamp: String) {
+        try {
+            // 关闭旧事件文件
+            try {
+                eventLogWriter?.flush()
+                eventLogWriter?.close()
+            } catch (_: Exception) {}
+
+            val externalDir = context.getExternalFilesDir("logs")
+            if (externalDir == null) {
+                Log.w(TAG, "[事件日志] 外部存储不可用，事件将仅写入普通日志")
+                return
+            }
+            if (!externalDir.exists()) externalDir.mkdirs()
+            eventLogFile = File(externalDir, "events_${timestamp}.jsonl")
+            eventLogWriter = PrintWriter(FileWriter(eventLogFile, true), true)
+            eventLogWriter?.println("{\"type\":\"meta\",\"message\":\"AutoSwapEng events started\",\"ts\":${System.currentTimeMillis()}}")
+        } catch (e: Exception) {
+            Log.e(TAG, "[事件日志] 初始化失败: ${e.message}")
+        }
+    }
     
     /**
      * 获取日志文件路径（优先返回外部存储路径，方便用户访问）
@@ -188,6 +220,11 @@ object LogManager {
      * 获取外部存储日志文件路径
      */
     fun getExternalLogFilePath(): String? = externalLogFile?.absolutePath
+
+    /**
+     * 获取事件日志文件路径
+     */
+    fun getEventLogFilePath(): String? = eventLogFile?.absolutePath
     
     /**
      * 获取所有日志文件列表
@@ -251,6 +288,89 @@ object LogManager {
     fun i(tag: String, message: String) = addLog(LogEntry.Level.INFO, tag, message)
     fun w(tag: String, message: String) = addLog(LogEntry.Level.WARN, tag, message)
     fun e(tag: String, message: String) = addLog(LogEntry.Level.ERROR, tag, message)
+
+    /**
+     * 写入结构化事件日志（同时在普通日志中输出精简摘要）
+     * @param code 事件编码（如 OCR_CAPTURE/QUIZ_MATCH/SPELL_HINT/...）
+     * @param tag 模块标签
+     * @param message 摘要
+     * @param data 附加字段（键值对，仅支持基本类型与字符串）
+     * @param level 日志级别（默认 INFO）
+     */
+    fun event(
+        code: String,
+        tag: String,
+        message: String,
+        data: Map<String, Any?> = emptyMap(),
+        level: LogEntry.Level = LogEntry.Level.INFO
+    ) {
+        // 普通日志摘要
+        addLog(level, "$tag/$code", message)
+
+        // JSONL 结构化写入
+        try {
+            val sb = StringBuilder()
+            sb.append('{')
+            sb.append("\"ts\":").append(System.currentTimeMillis()).append(',')
+            sb.append("\"level\":\"").append(level.name).append("\",")
+            sb.append("\"code\":\"").append(escape(code)).append("\",")
+            sb.append("\"tag\":\"").append(escape(tag)).append("\",")
+            sb.append("\"message\":\"").append(escape(message)).append("\",")
+            if (data.isNotEmpty()) {
+                sb.append("\"data\":{")
+                var first = true
+                for ((k, v) in data) {
+                    if (!first) sb.append(',') else first = false
+                    sb.append("\"").append(escape(k)).append("\":")
+                    sb.append(toJsonValue(v))
+                }
+                sb.append('}')
+            } else {
+                sb.append("\"data\":{}")} // 保持字段一致
+            sb.append('}')
+            eventLogWriter?.println(sb.toString())
+            eventLogWriter?.flush()
+        } catch (e: Exception) {
+            Log.e(TAG, "事件日志写入失败: ${e.message}")
+        }
+    }
+
+    private fun escape(s: String): String = buildString {
+        for (c in s) when (c) {
+            '"' -> append("\\\"")
+            '\\' -> append("\\\\")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(c)
+        }
+    }
+
+    private fun toJsonValue(v: Any?): String = when (v) {
+        null -> "null"
+        is Number, is Boolean -> v.toString()
+        is String -> "\"${escape(v)}\""
+        is Map<*, *> -> buildString {
+            append('{')
+            var first = true
+            for ((k, vv) in v) {
+                if (k !is String) continue
+                if (!first) append(',') else first = false
+                append('"').append(escape(k)).append('"').append(':').append(toJsonValue(vv))
+            }
+            append('}')
+        }
+        is Iterable<*> -> buildString {
+            append('[')
+            var first = true
+            for (e in v) {
+                if (!first) append(',') else first = false
+                append(toJsonValue(e))
+            }
+            append(']')
+        }
+        else -> "\"${escape(v.toString())}\""
+    }
     
     /**
      * 清空日志（仅清空内存中的日志，不删除文件）
@@ -278,6 +398,14 @@ object LogManager {
             Log.d(TAG, "外部日志文件已关闭")
         } catch (e: Exception) {
             Log.e(TAG, "关闭外部日志文件失败", e)
+        }
+
+        try {
+            eventLogWriter?.flush()
+            eventLogWriter?.close()
+            Log.d(TAG, "事件日志文件已关闭")
+        } catch (e: Exception) {
+            Log.e(TAG, "关闭事件日志文件失败", e)
         }
     }
     
