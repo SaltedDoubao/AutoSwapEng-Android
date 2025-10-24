@@ -21,6 +21,7 @@ local.properties
 *.iws
 **/captures/
 .cursor/
+.github/
 
 ############################################
 # OS junk
