@@ -59,7 +59,7 @@ object MiniProgramRegions {
     }
     
     /**
-     * 单词选择题型区域（待实现）
+     * 单词选择题型区域
      */
     object Selection {
         // 单词区域（题目英文单词）
@@ -68,6 +68,30 @@ object MiniProgramRegions {
             top = 0.3056f,
             right = 0.9150f,
             bottom = 0.4053f
+        )
+
+        // 学习页中文释义区域（PCHIN）：用于学习阶段记录释义
+        val DEFINITION_AREA = NormalizedRect(
+            left = 0.1421f,
+            top = 0.4691f,
+            right = 0.9081f,
+            bottom = 0.7788f
+        )
+
+        // 测试判断区域（PTEST）：用于判定进入学习/测试流程
+        val TEST_AREA = NormalizedRect(
+            left = 0.0935f,
+            top = 0.3785f,
+            right = 0.9029f,
+            bottom = 0.4497f
+        )
+
+        // 测试页题目单词区域（KWORD）：用于测试阶段提取题目英文单词
+        val QUESTION_WORD_AREA = NormalizedRect(
+            left = 0.1005f,
+            top = 0.2877f,
+            right = 0.9098f,
+            bottom = 0.3805f
         )
 
         // 中文选项区域（四个选项整体包围框）
@@ -89,10 +113,23 @@ object MiniProgramRegions {
     }
     
     /**
-     * 听力题型区域（待实现）
+     * 听力题型区域
      */
     object Listening {
-        // TODO: 等待UI截图后实现
+        // 参考桌面原型坐标（归一化）
+        // STAR 按钮（开始/继续）
+        val STAR = NormalizedPoint(0.5052f, 0.5879f)
+        // 按钮1：开始播放/重播
+        val BUTTON1 = NormalizedPoint(0.2811f, 0.8427f)
+        // 按钮2：开始录音/确定
+        val BUTTON2 = NormalizedPoint(0.9376f, 0.9826f)
+        // 按钮3：当前卡包完成后的继续/完成
+        val BUTTON3 = NormalizedPoint(0.3504f, 0.9517f)
+        // 右下角下一题（三角播放样式）
+        val NEXT = NormalizedPoint(0.95f, 0.965f)
+
+        // 提示扫描区域（全屏）
+        val FULL = NormalizedRect(0f, 0f, 1f, 1f)
     }
     
     /**

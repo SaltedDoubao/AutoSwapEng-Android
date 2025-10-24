@@ -198,6 +198,7 @@ fun FloatingWindowContent(
     var hasOcrPermission by remember { mutableStateOf(AppAccessibilityService.instance?.isScreenCaptureReady() ?: false) }
     var isSpellingRunning by remember { mutableStateOf(false) }
     var isSelectionRunning by remember { mutableStateOf(false) }
+    var isListeningRunning by remember { mutableStateOf(false) }
     
     val currentMode = if (isTestMode) "测试模式" else "学习模式"
 
@@ -212,6 +213,7 @@ fun FloatingWindowContent(
             hasOcrPermission = AppAccessibilityService.instance?.isScreenCaptureReady() ?: false
             isSpellingRunning = AppAccessibilityService.isSpellingRunning()
             isSelectionRunning = AppAccessibilityService.isSelectionRunning()
+            isListeningRunning = AppAccessibilityService.isListeningRunning()
         }
     }
 
@@ -451,8 +453,12 @@ fun FloatingWindowContent(
                         Button(
                             onClick = {
                                 isExpanded = false
-                                // 预留：后续实现
-                                com.autoswapeng.app.log.LogManager.w("FloatingWindow", "拼写题功能待实现")
+                                if (!isSpellingRunning) {
+                                    AppAccessibilityService.startSpelling()
+                                } else {
+                                    AppAccessibilityService.stopSpelling()
+                                }
+                                isSpellingRunning = AppAccessibilityService.isSpellingRunning()
                             },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = isServiceRunning && hasOcrPermission,
@@ -461,7 +467,7 @@ fun FloatingWindowContent(
                             )
                         ) {
                             Text(
-                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "✍️ 拼写（待实现）",
+                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else if (!isSpellingRunning) "✍️ 开始拼写" else "⏹️ 停止拼写",
                                 fontSize = 13.sp
                             )
                         }
@@ -493,8 +499,12 @@ fun FloatingWindowContent(
                         Button(
                             onClick = {
                                 isExpanded = false
-                                // TODO: 实现听力题功能
-                                com.autoswapeng.app.log.LogManager.w("FloatingWindow", "听力题功能待实现")
+                                if (!isListeningRunning) {
+                                    AppAccessibilityService.startListening()
+                                } else {
+                                    AppAccessibilityService.stopListening()
+                                }
+                                isListeningRunning = AppAccessibilityService.isListeningRunning()
                             },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = isServiceRunning && hasOcrPermission,
@@ -503,7 +513,7 @@ fun FloatingWindowContent(
                             )
                         ) {
                             Text(
-                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else "🎧 听力（待实现）",
+                                text = if (!hasOcrPermission) "⚠️ 需授权OCR" else if (!isListeningRunning) "🎧 开始听力" else "⏹️ 停止听力",
                                 fontSize = 13.sp
                             )
                         }
