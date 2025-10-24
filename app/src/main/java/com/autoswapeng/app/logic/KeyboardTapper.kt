@@ -80,12 +80,13 @@ class KeyboardTapper(
                 
                 LogManager.d(TAG, "[$index] 挂起式点击键盘 '$char' at ($x, $y)")
                 
-                // 使用挂起式点击，等待手势完成（手势本身只有30ms）
+                // 使用挂起式点击，等待手势完成
+                // 注意：tap函数内部已有Mutex锁和150ms防抖延迟，手势duration为30ms
                 tap(x, y)
                 
                 // 根据 Android Accessibility 最佳实践：
                 // 手势短促（30ms），间隔适中（150-200ms）
-                // 文档建议：每个键间隔 100~200ms
+                // tap函数已有150ms防抖，这里额外延迟确保输入法稳定
                 if (index == 0) {
                     // 首键需要更长延迟，让输入法完全初始化
                     LogManager.d(TAG, "首键延迟 500ms（输入法初始化）")
@@ -118,7 +119,8 @@ class KeyboardTapper(
         
         repeat(times) {
             tap(x, y)
-            delay(80)  // 增加间隔，确保每次退格都生效
+            // tap函数已有150ms防抖，这里再延迟80ms，总计约230ms确保退格生效
+            delay(80)
         }
         
         LogManager.d(TAG, "✓ 输入已清空（已点击退格${times}次）")
